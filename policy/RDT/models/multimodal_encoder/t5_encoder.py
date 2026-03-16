@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoTokenizer, T5EncoderModel
+from transformers import T5Tokenizer, T5EncoderModel
 
 
 class T5Embedder:
@@ -72,7 +72,7 @@ class T5Embedder:
         self.hf_token = hf_token
 
         # assert from_pretrained in self.available_models
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = T5Tokenizer.from_pretrained(
             from_pretrained,
             model_max_length=model_max_length,
             cache_dir=cache_dir,

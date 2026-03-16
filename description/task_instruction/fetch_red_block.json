@@ -1,0 +1,29 @@
+{
+  "full_description": "there is one red block on the table at a random position, move it to the center",
+  "schema": "{A} notifies the red block, {a} notifies the arm to manipulate the red block",
+  "preference": "num of words should not exceed 14. Degree of detail avg 6",
+  "seen": [
+    "Use {a} to move {A} to the center.",
+    "Pick {A} with {a} and place it at center.",
+    "{a} grabs {A} and puts it in the center.",
+    "Move {A} to center using {a}.",
+    "Lift {A} by {a} and place it centrally.",
+    "Use {a} to bring {A} to the table center.",
+    "{a} picks {A} and sets it at center.",
+    "Place {A} at center with {a}.",
+    "Relocate {A} to center using {a}.",
+    "Carry {A} with {a} to the center."
+  ],
+  "unseen": [
+    "Transfer {A} to center with {a}.",
+    "Bring {A} to center via {a}.",
+    "Move {A} centrally using {a}.",
+    "Set {A} in the center by {a}.",
+    "Use {a} to place {A} at the table center.",
+    "Pick-and-place {A} to center with {a}.",
+    "Center {A} through {a}.",
+    "Move {A} to the midpoint using {a}.",
+    "Position {A} at center with {a}.",
+    "Place {A} at the center using {a}."
+  ]
+}

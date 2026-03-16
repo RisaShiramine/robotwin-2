@@ -4,7 +4,7 @@ task_name: null
 task_config: null
 ckpt_setting: null
 seed: null
-instruction_type: unseen
+instruction_type: seen
 policy_conda_env: null
 
 checkpoint_id: null

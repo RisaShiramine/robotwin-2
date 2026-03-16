@@ -5,6 +5,8 @@ import pdb
 import traceback
 import numpy as np
 import toppra as ta
+import os
+import tempfile
 from mplib.sapien_utils import SapienPlanner, SapienPlanningWorld
 import transforms3d as t3d
 import envs._GLOBAL_CONFIGS as CONFIGS
@@ -29,6 +31,48 @@ try:
 
     class CuroboPlanner:
 
+        @staticmethod
+        def _normalize_path(value: str, yml_dir: str) -> str:
+            root_path = os.path.abspath(CONFIGS.ROOT_PATH)
+            old_root = "/home/railgun/RoboTwin"
+
+            if value.startswith(old_root + "/"):
+                rel = os.path.relpath(value, old_root)
+                return os.path.normpath(os.path.join(root_path, rel))
+
+            if "/RoboTwin/" in value and value.startswith("/"):
+                rel = value.split("/RoboTwin/", 1)[1]
+                return os.path.normpath(os.path.join(root_path, rel))
+
+            if value.startswith("./") or value.startswith("../"):
+                return os.path.normpath(os.path.join(yml_dir, value))
+
+            if value.startswith("assets/"):
+                return os.path.normpath(os.path.join(root_path, value))
+
+            return value
+
+        @classmethod
+        def _normalize_robot_cfg_paths(cls, node, yml_dir: str):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if isinstance(value, (dict, list)):
+                        cls._normalize_robot_cfg_paths(value, yml_dir)
+                    elif isinstance(value, str):
+                        if key in {"urdf_path", "collision_spheres", "asset_root", "mesh_root"}:
+                            node[key] = cls._normalize_path(value, yml_dir)
+                return node
+
+            if isinstance(node, list):
+                for idx, value in enumerate(node):
+                    if isinstance(value, (dict, list)):
+                        cls._normalize_robot_cfg_paths(value, yml_dir)
+                    elif isinstance(value, str):
+                        node[idx] = cls._normalize_path(value, yml_dir)
+                return node
+
+            return node
+
         def __init__(
             self,
             robot_origion_pose,
@@ -51,6 +95,16 @@ try:
             # translate from baselink to arm's base
             with open(self.yml_path, "r") as f:
                 yml_data = yaml.safe_load(f)
+
+            yml_dir = os.path.dirname(os.path.abspath(self.yml_path))
+            yml_data = self._normalize_robot_cfg_paths(yml_data, yml_dir)
+
+            tmp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False)
+            yaml.safe_dump(yml_data, tmp_file)
+            tmp_file.flush()
+            tmp_file.close()
+            self.resolved_yml_path = tmp_file.name
+
             self.frame_bias = yml_data["planner"]["frame_bias"]
 
             # motion generation
@@ -72,7 +126,7 @@ try:
                     }
                 }
             motion_gen_config = MotionGenConfig.load_from_robot_config(
-                self.yml_path,
+                self.resolved_yml_path,
                 world_config,
                 interpolation_dt=1 / 250,
                 num_trajopt_seeds=1,
@@ -81,7 +135,7 @@ try:
             self.motion_gen = MotionGen(motion_gen_config)
             self.motion_gen.warmup()
             motion_gen_config = MotionGenConfig.load_from_robot_config(
-                self.yml_path,
+                self.resolved_yml_path,
                 world_config,
                 interpolation_dt=1 / 250,
                 num_trajopt_seeds=1,

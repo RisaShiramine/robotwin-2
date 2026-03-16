@@ -1,0 +1,50 @@
+common:
+  # The number of historical images
+  img_history_size: 2
+  # The number of future actions to predict
+  action_chunk_size: 64
+  # The number of cameras to be used in the model
+  num_cameras: 3
+  # Dimension for state/action, we use the same space for both state and action
+  # This MUST be equal to configs/state_vec.py
+  state_dim: 128
+
+
+dataset:
+  buf_path: /path/to/buffer
+  buf_num_chunks: 512
+  buf_chunk_size: 512
+  epsd_len_thresh_low: 32
+  epsd_len_thresh_high: 2048
+  image_aspect_ratio: pad
+  tokenizer_max_length: 1024
+
+model:
+  # Config for condition adaptors
+  lang_adaptor: mlp2x_gelu
+  img_adaptor: mlp2x_gelu
+  state_adaptor: mlp3x_gelu
+  lang_token_dim: 4096
+  img_token_dim: 1152
+  state_token_dim: 128
+  # Config for RDT structure — 170M variant
+  rdt:
+    hidden_size: 1024
+    depth: 14
+    num_heads: 32
+    cond_pos_embed_type: multimodal
+  # For noise scheduler
+  noise_scheduler:
+    type: ddpm
+    num_train_timesteps: 1000
+    num_inference_timesteps: 5
+    beta_schedule: squaredcos_cap_v2
+    prediction_type: sample
+    clip_sample: False
+  # For EMA
+  ema:
+    update_after_step: 0
+    inv_gamma: 1.0
+    power: 0.75
+    min_value: 0.0
+    max_value: 0.9999

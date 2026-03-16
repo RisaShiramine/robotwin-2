@@ -1,0 +1,35 @@
+{
+  "full_description": "there are three RGB blocks on the table, red is centered and green is stacked on red, pick the blue block and stack it on green",
+  "schema": "{A} notifies the red block, {B} notifies the green block, {C} notifies the blue block, {a} notifies the arm to manipulate the blue block",
+  "preference": "num of words should not exceed 18. Degree of detail avg 7",
+  "seen": [
+    "Use {a} to pick {C} and stack it on {B}, with {B} already on {A}.",
+    "Use {a} to lift {C} and place it on top of {B} above {A}.",
+    "Move {C} with {a} onto {B}, keeping the stack based on {A}.",
+    "Grab {C} by {a} and set it over {B}, where {B} is on {A}.",
+    "Pick {C} using {a} and place it atop {B} in the tower over {A}.",
+    "{a} relocates {C} above {B} while {B} remains stacked on {A}.",
+    "Use {a} to position {C} on {B}, with {A} as the bottom block.",
+    "Lift {C} with {a} and stack it on {B}, which sits on {A}.",
+    "{a} carries {C} and places it above {B} in the stack rooted at {A}.",
+    "Move {C} via {a} to rest on {B}, with {A} supporting {B}.",
+    "Take {C} with {a} and place it onto {B}, where {B} is over {A}.",
+    "Use {a} to raise {C} and put it on {B} above the centered {A}.",
+    "{a} picks {C} and aligns it on top of {B}, stacked on {A}.",
+    "Bring {C} using {a} to the top of {B} while {B} stays on {A}.",
+    "Place {C} with {a} directly over {B}; {B} is already on {A}.",
+    "Stack {C} on {B} using {a}, and keep {B} on top of {A}."
+  ],
+  "unseen": [
+    "Transfer {C} with {a} onto {B}, where {B} is on {A}.",
+    "Lift {C} using {a} and place it above {B} over {A}.",
+    "Put {C} on top of {B} by {a}, while {B} stays on {A}.",
+    "Move {C} with {a} and stack it over {B} above {A}.",
+    "Set {C} atop {B} with {a}, and keep {B} stacked on {A}.",
+    "Use {a} to stack {C} on {B}, with {A} at the base.",
+    "Reposition {C} by {a} to the top of {B}, and {B} on {A}.",
+    "Bring {C} using {a} to {B} and complete the tower over {A}.",
+    "Deposit {C} with {a} onto {B}, where {B} rests on {A}.",
+    "Place {C} over {B} using {a} to finalize stacking above {A}."
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "full_description": "there are three RGB blocks on the table with randomized colors, pick the red block and move it to the center, then return the arm to origin",
+  "schema": "{A} notifies the red block, {a} notifies the arm used to manipulate the red block",
+  "preference": "num of words should not exceed 16. Degree of detail avg 7",
+  "seen": [
+    "Use {a} to move {A} to the center and return to origin.",
+    "Pick {A} with {a}, place it at center, then reset {a}.",
+    "{a} grabs {A}, centers it, and goes back to origin.",
+    "Move {A} to center using {a}, then return {a} home.",
+    "Lift {A} by {a}, place at center, and reset {a}.",
+    "Use {a} to center {A}, then bring {a} to origin.",
+    "{a} picks {A}, sets it in center, then returns.",
+    "Place {A} at center with {a}, then move {a} to origin.",
+    "Relocate {A} by {a} to center and reset {a}.",
+    "{a} centers {A} and then returns to initial pose."
+  ],
+  "unseen": [
+    "Transfer {A} to center via {a}, then send {a} to origin.",
+    "Bring {A} to center with {a} and reset {a}.",
+    "Move {A} centrally using {a}, then return {a}.",
+    "Set {A} at center by {a}, then recover {a} to origin.",
+    "Carry {A} with {a} to center and move {a} back.",
+    "Use {a} to place {A} at center, then reset {a} pose.",
+    "Pick-and-place {A} to center with {a}, then return {a}.",
+    "Center {A} through {a}, and move {a} to initial position.",
+    "Move {A} to center and have {a} go back to origin.",
+    "With {a}, center {A} first, then reset {a}."
+  ]
+}

@@ -23,7 +23,7 @@ data_type:
   rgb: true
   third_view: false
   depth: false
-  pointcloud: false
+  pointcloud: true
   observer: false
   endpose: true
   qpos: true

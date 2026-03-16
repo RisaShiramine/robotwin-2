@@ -1,0 +1,29 @@
+{
+  "full_description": "there are two blocks on the table, red is centered, pick the green block and stack it on the red block",
+  "schema": "{A} notifies the red block, {B} notifies the green block, {a} notifies the arm to manipulate the green block",
+  "preference": "num of words should not exceed 16. Degree of detail avg 7",
+  "seen": [
+    "Use {a} to pick {B} and stack it on {A}.",
+    "Lift {B} with {a} and place it on top of {A}.",
+    "Move {B} onto {A} using {a}.",
+    "Grab {B} by {a} and set it above {A}.",
+    "Pick {B} with {a} and place it over {A}.",
+    "{a} carries {B} and stacks it on {A}.",
+    "Use {a} to relocate {B} onto {A}.",
+    "Take {B} with {a} and put it atop {A}.",
+    "{a} lifts {B} and aligns it on {A}.",
+    "Place {B} on {A} via {a}."
+  ],
+  "unseen": [
+    "Transfer {B} onto {A} with {a}.",
+    "Raise {B} by {a} and set it on {A}.",
+    "Put {B} above {A} using {a}.",
+    "Use {a} to stack {B} on {A}.",
+    "Reposition {B} with {a} to the top of {A}.",
+    "Bring {B} using {a} and stack on {A}.",
+    "Move {B} with {a} to rest on {A}.",
+    "Deposit {B} over {A} through {a}.",
+    "Place {B} atop {A} by {a}.",
+    "Lift-and-stack {B} on {A} with {a}."
+  ]
+}

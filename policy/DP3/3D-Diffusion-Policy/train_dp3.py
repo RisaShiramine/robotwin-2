@@ -312,7 +312,7 @@ class TrainDP3Workspace:
         n_obs_steps = cfg['n_obs_steps']
         n_action_steps = cfg['n_action_steps']
 
-        env_runner = RobotRunner(n_obs_steps=n_obs_steps, n_action_steps=n_action_steps)
+        env_runner = RobotRunner(n_obs_steps=n_obs_steps, n_action_steps=n_action_steps, task_name=usr_args['task_name'])
 
         if not cfg.policy.use_pc_color:
             ckpt_file = pathlib.Path(

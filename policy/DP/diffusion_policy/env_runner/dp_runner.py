@@ -38,6 +38,10 @@ class DPRunner:
 
         self.obs = deque(maxlen=n_obs_steps + 1)
         self.env = None
+        
+        # 为了降低动作抖动，初始化 EMA (指数移动平均) 滤波器状态和系数
+        self.last_action = None
+        self.action_ema_alpha = 0.4  # 取值范围 (0, 1]，0.4 是比较平滑的一个默认值
 
     def stack_last_n_obs(self, all_obs, n_steps):
         assert len(all_obs) > 0
@@ -62,6 +66,7 @@ class DPRunner:
 
     def reset_obs(self):
         self.obs.clear()
+        self.last_action = None
 
     def update_obs(self, current_obs):
         self.obs.append(current_obs)
@@ -98,5 +103,16 @@ class DPRunner:
 
         # device_transfer
         np_action_dict = dict_apply(action_dict, lambda x: x.detach().to("cpu").numpy())
-        action = np_action_dict["action"].squeeze(0)[:self.n_action_steps]
-        return action
+        raw_action = np_action_dict["action"].squeeze(0)[:self.n_action_steps]
+        
+        # 应用 EMA 平滑滤波
+        smoothed_action = np.zeros_like(raw_action)
+        for i in range(len(raw_action)):
+            if self.last_action is None:
+                self.last_action = raw_action[i].copy()
+            else:
+                # 夹爪部分 (通常在动作最后2维) 可以考虑不平滑以免影响抓取速度，此处做全局平滑
+                self.last_action = self.action_ema_alpha * raw_action[i] + (1 - self.action_ema_alpha) * self.last_action
+            smoothed_action[i] = self.last_action.copy()
+
+        return smoothed_action

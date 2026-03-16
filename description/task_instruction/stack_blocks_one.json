@@ -1,0 +1,39 @@
+{
+  "full_description": "there are two blocks on the table with randomized RGB colors, pick one target block and move it to the center of the table",
+  "schema": "{A} notifies the target block to move, {a} notifies the arm used to manipulate the target block",
+  "preference": "num of words should not exceed 15. Degree of detail avg 6",
+  "seen": [
+    "Move {A} to the center of the table.",
+    "{a} picks up {A} and places it in the center.",
+    "Grab {A} and set it at the table center.",
+    "Use {a} to bring {A} to the center.",
+    "Relocate {A} to the middle of the table.",
+    "Pick up {A} and place it at center.",
+    "{a} moves {A} to the center point.",
+    "Place {A} in the center area.",
+    "Shift {A} to the center of the table.",
+    "Carry {A} with {a} to the center.",
+    "Move only {A} to the table center.",
+    "{a} grabs {A} and puts it at center.",
+    "Bring {A} to the middle.",
+    "Set {A} down at the center.",
+    "Use {a} to position {A} at center.",
+    "Take {A} and place it in the center.",
+    "Center {A} on the table.",
+    "Lift {A} and place it centrally.",
+    "Move {A} to center using {a}.",
+    "Pick {A} and put it at the table center."
+  ],
+  "unseen": [
+    "Transfer {A} to the center.",
+    "Position {A} at the center of the table.",
+    "Bring {A} to the central spot.",
+    "Move {A} into the middle area.",
+    "Place {A} at center with {a}.",
+    "Use {a} to set {A} in the center.",
+    "Reposition {A} to the table center.",
+    "Lift and center {A}.",
+    "Take {A} to the midpoint.",
+    "Put {A} in the table's center."
+  ]
+}

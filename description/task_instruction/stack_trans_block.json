@@ -1,0 +1,29 @@
+{
+  "full_description": "stack three blocks in RGB order at center while only the current target color remains visible",
+  "schema": "{A} notifies the red block, {B} notifies the green block, {C} notifies the blue block, {a} notifies the arm for {A}, {b} notifies the arm for {B}, {c} notifies the arm for {C}",
+  "preference": "num of words should not exceed 22. Degree of detail avg 8",
+  "seen": [
+    "Use {a} for {A}, {b} for {B}, and {c} for {C}; stack in RGB order at center.",
+    "Move {A} with {a}, then {B} with {b}, then {C} with {c}, stacking centrally.",
+    "Pick {A} by {a}, stack {B} by {b}, and place {C} by {c} on top at center.",
+    "Use {a} to center {A}, {b} to stack {B}, and {c} to stack {C} in order.",
+    "{a} moves {A}, {b} moves {B}, {c} moves {C}; complete RGB stack at center.",
+    "Stack {A}, {B}, {C} at center in order using {a}, {b}, and {c}.",
+    "With {a}, {b}, {c}, place {A}, then {B}, then {C} to form center stack.",
+    "Use {a} on {A}, {b} on {B}, and {c} on {C} for ordered center stacking.",
+    "Place {A} by {a}, then {B} by {b}, then {C} by {c} on center tower.",
+    "Execute RGB stacking: {A} via {a}, {B} via {b}, {C} via {c} at center."
+  ],
+  "unseen": [
+    "Center-stack {A}, {B}, {C} in RGB sequence with {a}, {b}, and {c}.",
+    "Use {a}, {b}, {c} to place {A}, {B}, {C} in order at center.",
+    "Move {A} with {a}, then {B} with {b}, then {C} with {c} onto center stack.",
+    "Perform ordered stacking of {A}, {B}, {C} at center using {a}, {b}, {c}.",
+    "{a} handles {A}, {b} handles {B}, {c} handles {C}; finish center RGB tower.",
+    "Stack {A} then {B} then {C} at center via {a}, {b}, and {c}.",
+    "Arrange {A}, {B}, {C} in RGB stacking order using {a}, {b}, {c} centrally.",
+    "Use {a} for {A}, {b} for {B}, and {c} for {C} to build center tower.",
+    "Place {A}, {B}, {C} sequentially at center by {a}, {b}, {c}.",
+    "Complete RGB center stacking: {A}-{a}, {B}-{b}, {C}-{c}."
+  ]
+}

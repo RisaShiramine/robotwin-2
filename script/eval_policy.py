@@ -204,6 +204,8 @@ def eval_policy(task_name,
     now_id = 0
     succ_seed = 0
     suc_test_seed_list = []
+    consecutive_errors = 0
+    max_consecutive_errors = int(args.get("max_consecutive_errors", 20))
 
     policy_name = args["policy_name"]
     eval_func = eval_function_decorator(policy_name, "eval")
@@ -224,6 +226,7 @@ def eval_policy(task_name,
                 TASK_ENV.setup_demo(now_ep_num=now_id, seed=now_seed, is_test=True, **args)
                 episode_info = TASK_ENV.play_once()
                 TASK_ENV.close_env()
+                consecutive_errors = 0
             except UnStableError as e:
                 # print(" -------------")
                 # print("Error: ", e)
@@ -233,14 +236,19 @@ def eval_policy(task_name,
                 args["render_freq"] = render_freq
                 continue
             except Exception as e:
-                # stack_trace = traceback.format_exc()
-                # print(" -------------")
-                # print("Error: ", e)
-                # print(" -------------")
                 TASK_ENV.close_env()
                 now_seed += 1
                 args["render_freq"] = render_freq
+                consecutive_errors += 1
                 print("error occurs !")
+                print(f"[eval_policy] seed={now_seed - 1}, consecutive_errors={consecutive_errors}/{max_consecutive_errors}")
+                print(f"[eval_policy] exception: {e}")
+                print(traceback.format_exc())
+                if consecutive_errors >= max_consecutive_errors:
+                    raise RuntimeError(
+                        f"Exceeded max_consecutive_errors={max_consecutive_errors}. "
+                        "Please inspect the traceback above."
+                    )
                 continue
 
         if (not expert_check) or (TASK_ENV.plan_success and TASK_ENV.check_success()):

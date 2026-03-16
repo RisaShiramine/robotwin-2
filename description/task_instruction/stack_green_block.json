@@ -1,0 +1,35 @@
+{
+  "full_description": "there are three RGB blocks on the table, red is already at table center, pick the green block and stack it on the red block",
+  "schema": "{A} notifies the red block, {B} notifies the green block, {a} notifies the arm to manipulate the green block",
+  "preference": "num of words should not exceed 16. Degree of detail avg 7",
+  "seen": [
+    "Use {a} to pick {B} and stack it on {A}.",
+    "Pick up {B} and place it on top of {A}.",
+    "Move {B} onto {A} using {a}.",
+    "Grab {B} and stack it over {A}.",
+    "Place {B} on {A}.",
+    "With {a}, lift {B} and set it atop {A}.",
+    "Stack {B} on the centered {A}.",
+    "Pick {B} and put it on {A}.",
+    "Relocate {B} above {A}.",
+    "Set {B} on top of {A} using {a}.",
+    "Take {B} and position it on {A}.",
+    "Use {a} to move {B} to {A}'s top.",
+    "Raise {B} and stack it on {A}.",
+    "Place the {B} directly over {A}.",
+    "Carry {B} with {a} and place it on {A}.",
+    "Stack the {B} block on the {A} block."
+  ],
+  "unseen": [
+    "Transfer {B} onto {A}.",
+    "Lift {B} and place it above {A}.",
+    "Put {B} on top of {A}.",
+    "Move {B} and stack it over {A}.",
+    "Set {B} atop {A} with {a}.",
+    "Use {a} to stack {B} on {A}.",
+    "Reposition {B} to the top of {A}.",
+    "Bring {B} to {A} and stack.",
+    "Deposit {B} onto {A}.",
+    "Place {B} over {A} to form a stack."
+  ]
+}
