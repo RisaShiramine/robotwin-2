@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+TABLE_SUPPORTS = {None, "table", "center", "table_center"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert task decompositions into per-timestep planner labels.")
@@ -15,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episode-lengths-json", default=None, help="JSON file mapping episode ids to transition lengths.")
     parser.add_argument("--stage-boundaries-json", default=None, help="Optional JSON file mapping episode ids to explicit stage ranges.")
     parser.add_argument("--summary-output", default=None, help="Optional summary JSON path.")
+    parser.add_argument("--disable-stage-normalization", action="store_true", help="Use decomposition stages as-is without stack-stage normalization.")
     return parser.parse_args()
 
 
@@ -35,8 +38,7 @@ def load_decomposition_file(path: str) -> Dict[str, Dict[str, Any]]:
 
     mapping: Dict[str, Dict[str, Any]] = {}
     for row in rows:
-        instruction = row["instruction"]
-        mapping[instruction] = row
+        mapping[row["instruction"]] = row
     return mapping
 
 
@@ -65,8 +67,7 @@ def choose_instruction(instruction_payload: Dict[str, List[str]], source: str) -
 def load_instruction_dir(path: str, source: str) -> Dict[int, str]:
     mapping: Dict[int, str] = {}
     for json_file in sorted(Path(path).glob("episode*.json")):
-        stem = json_file.stem
-        episode_id = int(stem.replace("episode", ""))
+        episode_id = int(json_file.stem.replace("episode", ""))
         payload = json.loads(json_file.read_text(encoding="utf-8"))
         mapping[episode_id] = choose_instruction(payload, source)
     return mapping
@@ -125,6 +126,90 @@ def dedupe_keep_order(items: Iterable[Any]) -> List[Any]:
     return result
 
 
+def is_table_support(value: Any) -> bool:
+    return value in TABLE_SUPPORTS
+
+
+def build_stage_label(stage: Dict[str, Any]) -> str:
+    target_object = stage.get("target_object")
+    target_support = stage.get("target_support")
+    target_location = stage.get("target_location")
+    action_type = stage.get("action_type") or "stage"
+    if target_support and not is_table_support(target_support):
+        return f"{target_object} on {target_support}"
+    if target_location:
+        return f"{target_object} at {target_location}"
+    return f"{action_type} {target_object}".strip()
+
+
+def topologically_order_stack_stages(stack_stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    ordered = []
+    placed = set()
+    remaining = stack_stages[:]
+    while remaining:
+        progress = False
+        for stage in list(remaining):
+            support = stage.get("target_support")
+            if is_table_support(support) or support in placed:
+                ordered.append(stage)
+                placed.add(stage.get("target_object"))
+                remaining.remove(stage)
+                progress = True
+        if not progress:
+            ordered.extend(remaining)
+            break
+    return ordered
+
+
+def normalize_decomposition_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    decomposition = row["decomposition"]
+    stages = decomposition.get("stages", [])
+    if decomposition.get("task_category") != "stack" or len(stages) <= 1:
+        return row
+
+    stack_stages = [stage for stage in stages if not is_table_support(stage.get("target_support"))]
+    if not stack_stages:
+        return row
+
+    ordered_stack_stages = topologically_order_stack_stages(stack_stages)
+    base_object = ordered_stack_stages[0].get("target_support")
+    base_stage = None
+    for stage in stages:
+        if stage.get("target_object") == base_object and is_table_support(stage.get("target_support")):
+            base_stage = dict(stage)
+            break
+
+    if base_stage is None:
+        base_stage = {
+            "stage": f"place_{str(base_object).replace(' ', '_')}_at_center",
+            "action_type": "place",
+            "target_object": base_object,
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": None,
+            "required_objects": [base_object],
+            "completed_subgoals_before_stage": [],
+            "success_criteria": f"{base_object} is placed at the center of the table.",
+        }
+
+    normalized_stages = [base_stage]
+    normalized_stages.extend(dict(stage) for stage in ordered_stack_stages)
+
+    completed = []
+    for idx, stage in enumerate(normalized_stages):
+        stage["completed_subgoals_before_stage"] = completed[:]
+        if idx == 0:
+            completed.append(build_stage_label(stage))
+        else:
+            completed.append(build_stage_label(stage))
+
+    normalized = dict(row)
+    normalized["decomposition"] = dict(decomposition)
+    normalized["decomposition"]["stages"] = normalized_stages
+    return normalized
+
+
 def build_label_rows(
     episode_id: int,
     instruction: str,
@@ -139,7 +224,7 @@ def build_label_rows(
 
     for stage_index, (stage, (start, end)) in enumerate(zip(stages, stage_ranges)):
         completed_before = stage.get("completed_subgoals_before_stage", []) or [
-            previous_stage["stage"] for previous_stage in stages[:stage_index]
+            build_stage_label(previous_stage) for previous_stage in stages[:stage_index]
         ]
         relevance_objects = dedupe_keep_order(
             list(stage.get("required_objects", []))
@@ -207,6 +292,8 @@ def main() -> None:
             if row is None:
                 missing_instructions.append({"episode_id": episode_id, "instruction": instruction})
                 continue
+            if not args.disable_stage_normalization:
+                row = normalize_decomposition_row(row)
             episode_length = episode_lengths[episode_id]
             stages = row["decomposition"]["stages"]
             if not stages:
@@ -240,6 +327,7 @@ def main() -> None:
         "missing_instruction_matches": missing_instructions,
         "instruction_source": args.instruction_source if args.instruction_dir else "episode_instruction_map",
         "alignment_mode": "explicit_stage_boundaries" if stage_boundaries else "uniform_partition",
+        "stage_normalization": not args.disable_stage_normalization,
     }
 
     if args.summary_output:
