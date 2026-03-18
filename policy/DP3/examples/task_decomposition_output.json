@@ -1,0 +1,154 @@
+{
+  "seen": [
+    {
+      "split": "seen",
+      "index": 0,
+      "instruction": "Place red block, green block, and blue block at the center and stack blue block on green block, then green block on red block.",
+      "decomposition": {
+        "instruction": "Place red block, green block, and blue block at the center and stack blue block on green block, then green block on red block.",
+        "canonical_task": "Place red, green, and blue blocks at the center, then stack them in order: blue on green, then green on red.",
+        "task_category": "stack",
+        "scene_objects": ["red block", "green block", "blue block"],
+        "final_goal": "Three-block stack at center with blue on top, green in middle, red at bottom.",
+        "stages": [
+          {
+            "stage": "place_red_at_center",
+            "action_type": "place",
+            "target_object": "red block",
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["red block"],
+            "completed_subgoals_before_stage": [],
+            "success_criteria": "Red block is positioned at the center of the table."
+          },
+          {
+            "stage": "place_green_at_center",
+            "action_type": "place",
+            "target_object": "green block",
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["green block"],
+            "completed_subgoals_before_stage": ["red block at center"],
+            "success_criteria": "Green block is positioned at the center of the table, near red block."
+          },
+          {
+            "stage": "place_blue_at_center",
+            "action_type": "place",
+            "target_object": "blue block",
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["blue block"],
+            "completed_subgoals_before_stage": ["red block at center", "green block at center"],
+            "success_criteria": "Blue block is positioned at the center of the table, near other blocks."
+          },
+          {
+            "stage": "stack_green_on_red",
+            "action_type": "stack",
+            "target_object": "green block",
+            "target_support": "red block",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["green block", "red block"],
+            "completed_subgoals_before_stage": ["red block at center", "green block at center", "blue block at center"],
+            "success_criteria": "Green block is stably stacked on top of red block at center."
+          },
+          {
+            "stage": "stack_blue_on_green",
+            "action_type": "stack",
+            "target_object": "blue block",
+            "target_support": "green block",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["blue block", "green block"],
+            "completed_subgoals_before_stage": ["red block at center", "green block at center", "blue block at center", "green stacked on red"],
+            "success_criteria": "Blue block is stably stacked on top of green block, completing three-block tower."
+          }
+        ]
+      }
+    }
+  ],
+  "unseen": [
+    {
+      "split": "unseen",
+      "index": 0,
+      "instruction": "Bring red block, green block, blue block to the table's center and stack them: blue block on green block, green block on red block.",
+      "decomposition": {
+        "instruction": "Bring red block, green block, blue block to the table's center and stack them: blue block on green block, green block on red block.",
+        "canonical_task": "Move red, green, and blue blocks to the center of the table and stack them in order: red at bottom, green on red, blue on green.",
+        "task_category": "stack",
+        "scene_objects": ["red block", "green block", "blue block", "table"],
+        "final_goal": "A stack of three blocks at the table center with red at bottom, green in middle, and blue on top.",
+        "stages": [
+          {
+            "stage": "move_red_to_center",
+            "action_type": "move",
+            "target_object": "red block",
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["red block"],
+            "completed_subgoals_before_stage": [],
+            "success_criteria": "Red block is positioned at the center of the table."
+          },
+          {
+            "stage": "move_green_to_center",
+            "action_type": "move",
+            "target_object": "green block",
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["green block"],
+            "completed_subgoals_before_stage": ["Red block is at table center."],
+            "success_criteria": "Green block is positioned at the center of the table, near the red block."
+          },
+          {
+            "stage": "stack_green_on_red",
+            "action_type": "stack",
+            "target_object": "green block",
+            "target_support": "red block",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["green block", "red block"],
+            "completed_subgoals_before_stage": ["Red block is at table center.", "Green block is at table center."],
+            "success_criteria": "Green block is stably stacked on top of the red block at the table center."
+          },
+          {
+            "stage": "move_blue_to_center",
+            "action_type": "move",
+            "target_object": "blue block",
+            "target_support": "table",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["blue block"],
+            "completed_subgoals_before_stage": ["Red block is at table center.", "Green block is stacked on red block."],
+            "success_criteria": "Blue block is positioned at the center of the table, near the green-on-red stack."
+          },
+          {
+            "stage": "stack_blue_on_green",
+            "action_type": "stack",
+            "target_object": "blue block",
+            "target_support": "green block",
+            "target_location": "center",
+            "spatial_relation": "on",
+            "preferred_arm": null,
+            "required_objects": ["blue block", "green block"],
+            "completed_subgoals_before_stage": ["Red block is at table center.", "Green block is stacked on red block.", "Blue block is at table center."],
+            "success_criteria": "Blue block is stably stacked on top of the green block, completing a three-block stack at the table center."
+          }
+        ]
+      }
+    }
+  ]
+}
