@@ -96,8 +96,11 @@ You need:
 2. A mapping from `episode_id` to the exact instruction used in that episode
 3. Episode transition lengths (either from a JSON file or directly from a DP3 zarr via `--dp3-zarr`)
 
+<<<<<<< codex/implement-dual-data-stream-for-dp3-c3floc
 The safest setup is to pass the exact DP3 zarr that training will read. In that mode, the builder derives episode lengths from `meta/episode_ends`, so the `flat_index`, `episode_id`, and `timestep` layout comes from the same source of truth as the training dataset.
 
+=======
+>>>>>>> main
 ### Minimal example
 
 ```bash
@@ -193,6 +196,7 @@ Each output JSONL row contains:
 
 This output is meant for planner supervision. DP3 should continue reading the original zarr with `point_cloud`, `state`, and `action`.
 
+<<<<<<< codex/implement-dual-data-stream-for-dp3-c3floc
 ## Step 2.5: verify that episodes are correct and aligned with the zarr
 
 If you are asking “how do I know the decomposed episode is correct and that it lines up with the zarr training data?”, there are two separate checks:
@@ -233,6 +237,8 @@ A practical workflow is:
 3. Run `verify_planner_labels.py` and confirm `"passed": true`.
 4. Only then point training at that zarr + planner label pair.
 
+=======
+>>>>>>> main
 
 ## Step 3: use planner labels for training
 

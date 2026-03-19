@@ -1,0 +1,11 @@
+{
+  "decomposition_file": "/mnt/hdd/Project/RoboTwin/policy/DP3/examples/task_decomposition_output.json",
+  "output": "/mnt/hdd/Project/RoboTwin/policy/DP3/examples/planner_labels.jsonl",
+  "episodes_requested": 2,
+  "episodes_written": 2,
+  "rows_written": 22,
+  "missing_instruction_matches": [],
+  "instruction_source": "episode_instruction_map",
+  "alignment_mode": "uniform_partition",
+  "stage_normalization": true
+}
