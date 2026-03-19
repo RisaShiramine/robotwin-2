@@ -67,6 +67,28 @@ class PlannerRobotDataset(BaseDataset):
         expected = self.replay_buffer["action"].shape[0]
         if len(rows) != expected:
             raise ValueError(f"Planner label count {len(rows)} does not match replay buffer length {expected}.")
+
+        expected_episode_ends = np.asarray(self.replay_buffer.episode_ends[:], dtype=np.int64)
+        expected_flat_indices = np.arange(expected, dtype=np.int64)
+        actual_flat_indices = np.asarray([int(row["flat_index"]) for row in rows], dtype=np.int64)
+        if not np.array_equal(actual_flat_indices, expected_flat_indices):
+            raise ValueError("Planner labels must contain contiguous flat_index values matching replay buffer transitions.")
+
+        expected_episode_ids = np.zeros(expected, dtype=np.int64)
+        expected_timesteps = np.zeros(expected, dtype=np.int64)
+        start = 0
+        for episode_id, end in enumerate(expected_episode_ends):
+            end = int(end)
+            expected_episode_ids[start:end] = episode_id
+            expected_timesteps[start:end] = np.arange(end - start, dtype=np.int64)
+            start = end
+
+        actual_episode_ids = np.asarray([int(row["episode_id"]) for row in rows], dtype=np.int64)
+        actual_timesteps = np.asarray([int(row["timestep"]) for row in rows], dtype=np.int64)
+        if not np.array_equal(actual_episode_ids, expected_episode_ids):
+            raise ValueError("Planner label episode_id values do not align with replay buffer episode boundaries.")
+        if not np.array_equal(actual_timesteps, expected_timesteps):
+            raise ValueError("Planner label timestep values do not align with replay buffer episode-relative timesteps.")
         return rows
 
     @staticmethod

@@ -6,7 +6,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 TABLE_SUPPORTS = {None, "table", "center", "table_center"}
 
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert task decompositions into per-timestep planner labels.")
     parser.add_argument("--decomposition-file", required=True, help="JSON or JSONL produced by decompose_tasks.py.")
@@ -21,13 +20,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-stage-normalization", action="store_true", help="Use decomposition stages as-is without stack-stage normalization.")
     return parser.parse_args()
 
-
 def normalize_text_key(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     text = " ".join(str(value).strip().lower().split())
     return text or None
-
 
 def load_decomposition_file(path: str) -> List[Dict[str, Any]]:
     file_path = Path(path)
@@ -44,7 +41,6 @@ def load_decomposition_file(path: str) -> List[Dict[str, Any]]:
         else:
             raise ValueError("Unsupported decomposition file format.")
     return rows
-
 
 def build_decomposition_index(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Dict[str, Any]]]:
     by_instruction: Dict[str, Dict[str, Any]] = {}
@@ -67,7 +63,6 @@ def build_decomposition_index(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str,
         "task_id": by_task_id,
     }
 
-
 def load_episode_instruction_map(path: str) -> Dict[int, Dict[str, Any]]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if isinstance(payload, list):
@@ -79,7 +74,6 @@ def load_episode_instruction_map(path: str) -> Dict[int, Dict[str, Any]]:
         else:
             normalized[int(k)] = dict(v)
     return normalized
-
 
 def choose_instruction(instruction_payload: Dict[str, List[str]], source: str) -> str:
     seen = instruction_payload.get("seen", [])
@@ -95,7 +89,6 @@ def choose_instruction(instruction_payload: Dict[str, List[str]], source: str) -
             return candidates[0]
     raise ValueError("No instruction candidates found in instruction payload.")
 
-
 def load_instruction_dir(path: str, source: str) -> Dict[int, Dict[str, Any]]:
     mapping: Dict[int, Dict[str, Any]] = {}
     for json_file in sorted(Path(path).glob("episode*.json")):
@@ -104,26 +97,14 @@ def load_instruction_dir(path: str, source: str) -> Dict[int, Dict[str, Any]]:
         mapping[episode_id] = {"instruction": choose_instruction(payload, source)}
     return mapping
 
-
 def load_episode_lengths(path: str) -> Dict[int, int]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if isinstance(payload, list):
         return {idx: int(length) for idx, length in enumerate(payload)}
     return {int(k): int(v) for k, v in payload.items()}
 
-
-
-
 def load_episode_lengths_from_zarr(zarr_path: str) -> Dict[int, int]:
-    try:
-        import zarr
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError(
-            "zarr is required to infer episode lengths from --dp3-zarr. Install it or provide --episode-lengths-json."
-        ) from exc
-
-    root = zarr.open(str(Path(zarr_path).expanduser()), mode="r")
-    episode_ends = root["meta"]["episode_ends"][:]
+    episode_ends = load_episode_ends_from_zarr(zarr_path)
     lengths: Dict[int, int] = {}
     previous_end = 0
     for episode_id, end in enumerate(episode_ends):
@@ -132,6 +113,16 @@ def load_episode_lengths_from_zarr(zarr_path: str) -> Dict[int, int]:
         previous_end = end
     return lengths
 
+def load_episode_ends_from_zarr(zarr_path: str) -> List[int]:
+    try:
+        import zarr
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "zarr is required to inspect --dp3-zarr. Install it or provide --episode-lengths-json."
+        ) from exc
+
+    root = zarr.open(str(Path(zarr_path).expanduser()), mode="r")
+    return [int(value) for value in root["meta"]["episode_ends"][:]]
 
 def merge_episode_lengths(explicit_lengths: Dict[int, int], zarr_lengths: Dict[int, int]) -> Dict[int, int]:
     merged = dict(zarr_lengths)
@@ -141,7 +132,6 @@ def merge_episode_lengths(explicit_lengths: Dict[int, int], zarr_lengths: Dict[i
 def load_stage_boundaries(path: str) -> Dict[int, List[Dict[str, int]]]:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     return {int(k): v for k, v in payload.items()}
-
 
 def evenly_partition(length: int, num_stages: int) -> List[Tuple[int, int]]:
     if num_stages <= 0:
@@ -158,7 +148,6 @@ def evenly_partition(length: int, num_stages: int) -> List[Tuple[int, int]]:
         cursor = end
     return parts
 
-
 def normalize_stage_boundaries(stage_ranges: List[Dict[str, int]], num_stages: int, length: int) -> List[Tuple[int, int]]:
     if len(stage_ranges) != num_stages:
         raise ValueError("Stage boundary count does not match decomposition stage count.")
@@ -171,7 +160,6 @@ def normalize_stage_boundaries(stage_ranges: List[Dict[str, int]], num_stages: i
         normalized.append((start, end))
     return normalized
 
-
 def dedupe_keep_order(items: Iterable[Any]) -> List[Any]:
     seen = set()
     result = []
@@ -183,10 +171,8 @@ def dedupe_keep_order(items: Iterable[Any]) -> List[Any]:
             result.append(item)
     return result
 
-
 def is_table_support(value: Any) -> bool:
     return value in TABLE_SUPPORTS
-
 
 def infer_stage_type(stage: Dict[str, Any]) -> str:
     if stage.get("stage_type"):
@@ -200,19 +186,15 @@ def infer_stage_type(stage: Dict[str, Any]) -> str:
         return "move_to_region"
     return action_type or "other"
 
-
 def infer_source_object(stage: Dict[str, Any]) -> Optional[str]:
     return stage.get("source_object") or stage.get("target_object")
-
 
 def infer_support_object(stage: Dict[str, Any]) -> Optional[str]:
     support = stage.get("support_object") or stage.get("target_support")
     return None if is_table_support(support) else support
 
-
 def infer_target_region(stage: Dict[str, Any]) -> Optional[str]:
     return stage.get("target_region") or stage.get("target_location")
-
 
 def build_stage_label(stage: Dict[str, Any]) -> str:
     source_object = infer_source_object(stage)
@@ -224,7 +206,6 @@ def build_stage_label(stage: Dict[str, Any]) -> str:
         return f"{source_object} at {target_region}"
     action_type = stage.get("action_type") or stage.get("stage_type") or "stage"
     return f"{action_type} {source_object}".strip()
-
 
 def topologically_order_stack_stages(stack_stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ordered = []
@@ -243,7 +224,6 @@ def topologically_order_stack_stages(stack_stages: List[Dict[str, Any]]) -> List
             ordered.extend(remaining)
             break
     return ordered
-
 
 def normalize_decomposition_row(row: Dict[str, Any]) -> Dict[str, Any]:
     decomposition = row["decomposition"]
@@ -298,7 +278,6 @@ def normalize_decomposition_row(row: Dict[str, Any]) -> Dict[str, Any]:
     normalized["decomposition"]["stages"] = normalized_stages
     return normalized
 
-
 def match_decomposition_row(index: Dict[str, Dict[str, Dict[str, Any]]], episode_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     task_id = episode_meta.get("task_id")
     if task_id is not None:
@@ -317,7 +296,6 @@ def match_decomposition_row(index: Dict[str, Dict[str, Dict[str, Any]]], episode
         return index["instruction"].get(normalize_text_key(instruction))
     return None
 
-
 def classify_relevance(stage: Dict[str, Any], decomposition: Dict[str, Any]) -> Tuple[List[Any], List[Any], List[Any]]:
     primary = dedupe_keep_order([
         infer_source_object(stage),
@@ -327,7 +305,6 @@ def classify_relevance(stage: Dict[str, Any], decomposition: Dict[str, Any]) -> 
     secondary = dedupe_keep_order(stage.get("required_objects", []))
     distractors = [obj for obj in decomposition.get("scene_objects", []) if obj not in primary and obj not in secondary]
     return primary, secondary, distractors
-
 
 def build_label_rows(
     episode_id: int,
@@ -384,7 +361,6 @@ def build_label_rows(
                 }
             )
     return rows
-
 
 def main() -> None:
     args = parse_args()
@@ -447,19 +423,44 @@ def main() -> None:
             total_rows += len(label_rows)
             episodes_written += 1
 
+    expected_total_rows = sum(episode_lengths[episode_id] for episode_id in episode_instruction_map if episode_id in episode_lengths)
+    written_episode_ids = sorted(
+        episode_id for episode_id in episode_instruction_map
+        if episode_id not in {item["episode_id"] for item in missing_instruction_matches}
+    )
+    per_episode_lengths = {
+        str(episode_id): episode_lengths[episode_id]
+        for episode_id in written_episode_ids
+    }
+    flat_index_contiguous = total_rows == flat_index == sum(per_episode_lengths.values())
+    zarr_episode_ends = load_episode_ends_from_zarr(args.dp3_zarr) if args.dp3_zarr else None
+    zarr_total_steps = zarr_episode_ends[-1] if zarr_episode_ends else None
+    zarr_matches_written_rows = zarr_total_steps == total_rows if zarr_total_steps is not None else None
+
     summary = {
         "decomposition_file": str(Path(args.decomposition_file).resolve()),
         "output": str(output_path.resolve()),
         "episodes_requested": len(episode_instruction_map),
         "episodes_written": episodes_written,
         "rows_written": total_rows,
+        "expected_rows_for_requested_episodes": expected_total_rows,
         "missing_instruction_matches": missing_instruction_matches,
+        "matched_episode_ids": written_episode_ids,
         "instruction_source": args.instruction_source if args.instruction_dir else "episode_instruction_map",
         "alignment_mode": "explicit_stage_boundaries" if stage_boundaries else "uniform_partition",
         "stage_normalization": not args.disable_stage_normalization,
         "episode_lengths_source": {
             "json": bool(args.episode_lengths_json),
             "dp3_zarr": bool(args.dp3_zarr),
+        },
+        "validation": {
+            "flat_index_start": 0,
+            "flat_index_end_exclusive": flat_index,
+            "flat_index_contiguous": flat_index_contiguous,
+            "per_episode_lengths": per_episode_lengths,
+            "zarr_episode_count": len(zarr_episode_ends) if zarr_episode_ends else None,
+            "zarr_total_steps": zarr_total_steps,
+            "zarr_matches_written_rows": zarr_matches_written_rows,
         },
     }
 
@@ -469,7 +470,6 @@ def main() -> None:
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
-
 
 if __name__ == "__main__":
     main()

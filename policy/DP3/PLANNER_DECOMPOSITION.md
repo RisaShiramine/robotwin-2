@@ -96,6 +96,11 @@ You need:
 2. A mapping from `episode_id` to the exact instruction used in that episode
 3. Episode transition lengths (either from a JSON file or directly from a DP3 zarr via `--dp3-zarr`)
 
+<<<<<<< codex/implement-dual-data-stream-for-dp3-c3floc
+The safest setup is to pass the exact DP3 zarr that training will read. In that mode, the builder derives episode lengths from `meta/episode_ends`, so the `flat_index`, `episode_id`, and `timestep` layout comes from the same source of truth as the training dataset.
+
+=======
+>>>>>>> main
 ### Minimal example
 
 ```bash
@@ -191,6 +196,49 @@ Each output JSONL row contains:
 
 This output is meant for planner supervision. DP3 should continue reading the original zarr with `point_cloud`, `state`, and `action`.
 
+<<<<<<< codex/implement-dual-data-stream-for-dp3-c3floc
+## Step 2.5: verify that episodes are correct and aligned with the zarr
+
+If you are asking “how do I know the decomposed episode is correct and that it lines up with the zarr training data?”, there are two separate checks:
+
+1. **Semantic correctness**: inspect whether the chosen instruction for each `episode_id` maps to the intended decomposition.
+2. **Index alignment correctness**: verify that `planner_labels.jsonl` has the exact same transition layout as the DP3 zarr.
+
+For semantic correctness, first inspect the builder summary JSON:
+
+- `missing_instruction_matches` tells you which episodes could not be matched to a decomposition at all.
+- `matched_episode_ids` lists the episodes that were actually written.
+- `validation.per_episode_lengths` shows how many planner rows were emitted per episode.
+
+For index alignment correctness, run the verifier against the same zarr you will train on:
+
+```bash
+python policy/DP3/scripts/verify_planner_labels.py \
+  --planner-labels policy/DP3/examples/planner_labels.jsonl \
+  --dp3-zarr policy/DP3/data/your_task.zarr \
+  --episode-instruction-map policy/DP3/examples/official_episode_instruction_map.json \
+  --summary-output policy/DP3/examples/planner_labels_verify_summary.json
+```
+
+This verifier will fail fast if any of the following are wrong:
+
+- `planner_labels.jsonl` row count does not equal the zarr transition count
+- `flat_index` is not contiguous from `0..N-1`
+- any row's `episode_id` disagrees with `meta/episode_ends`
+- any row's `timestep` disagrees with its within-episode offset
+- the instruction stored in `planner_labels.jsonl` does not match the instruction map for that episode
+
+At training time, `PlannerRobotDataset` now repeats the same structural checks when it loads `planner_labels.jsonl`, so a misaligned file will raise an error before optimization starts.
+
+A practical workflow is:
+
+1. Build labels with `--dp3-zarr` whenever possible.
+2. Open the summary JSON and confirm `missing_instruction_matches` is empty.
+3. Run `verify_planner_labels.py` and confirm `"passed": true`.
+4. Only then point training at that zarr + planner label pair.
+
+=======
+>>>>>>> main
 
 ## Step 3: use planner labels for training
 
