@@ -37,7 +37,14 @@ def inject_zarr(zarr_path, jsonl_path, vocab_output=None):
             obj_vocab[val] = len(obj_vocab)
         return obj_vocab[val]
 
+    root = zarr.open(str(zarr_path), mode="a")
+    data_group = root.require_group("data")
+    zarr_frames = int(data_group["action"].shape[0])
+
     n_frames = len(labels)
+    if n_frames != zarr_frames:
+        raise ValueError(f"planner_labels.jsonl row count ({n_frames}) must match zarr transition count ({zarr_frames}).")
+
     expected_indices = np.arange(n_frames, dtype=np.int64)
     actual_indices = np.asarray([int(row["flat_index"]) for row in labels], dtype=np.int64)
     if not np.array_equal(actual_indices, expected_indices):
@@ -53,9 +60,6 @@ def inject_zarr(zarr_path, jsonl_path, vocab_output=None):
         source_ids[idx] = get_obj_id(row.get("source_object"))
         tgt = row.get("target_object") or row.get("target_region") or row.get("target_support")
         target_ids[idx] = get_obj_id(tgt)
-
-    root = zarr.open(str(zarr_path), mode="a")
-    data_group = root.require_group("data")
 
     for name, arr in [("stage_id", stage_ids), ("source_id", source_ids), ("target_id", target_ids)]:
         if name in data_group:

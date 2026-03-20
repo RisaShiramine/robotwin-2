@@ -5,7 +5,7 @@ parent_directory = os.path.dirname(current_file_path)
 sys.path.append(os.path.join(parent_directory, '..'))
 sys.path.append(os.path.join(parent_directory, '../..'))
 
-from typing import Dict
+from typing import Dict, Tuple
 import torch
 import numpy as np
 import copy
@@ -24,6 +24,44 @@ from diffusion_policy_3d.dataset.base_dataset import BaseDataset
 import pdb
 
 
+def resolve_zarr_path(zarr_path: str) -> str:
+    current_file_path = os.path.abspath(__file__)
+    parent_directory = os.path.dirname(current_file_path)
+    return os.path.join(parent_directory, zarr_path)
+
+
+def inspect_planner_tokens(zarr_path: str) -> Tuple[bool, Dict[str, int]]:
+    resolved_path = resolve_zarr_path(zarr_path)
+    replay_root = ReplayBuffer.create_from_path(resolved_path)
+    has_tokens = all(name in replay_root.keys() for name in ("stage_id", "source_id", "target_id"))
+    vocab_sizes = {}
+    if has_tokens:
+        vocab_sizes = {
+            "stage": int(np.max(replay_root["stage_id"])) + 1 if len(replay_root["stage_id"]) > 0 else 1,
+            "object": int(max(np.max(replay_root["source_id"]), np.max(replay_root["target_id"]))) + 1
+            if len(replay_root["source_id"]) > 0
+            else 1,
+        }
+    return has_tokens, vocab_sizes
+
+
+def filter_indices_by_stage(indices: np.ndarray, replay_buffer: ReplayBuffer) -> np.ndarray:
+    if len(indices) == 0:
+        return indices
+
+    stage_ids = replay_buffer["stage_id"][:]
+    keep = np.ones(len(indices), dtype=bool)
+    sequence_length = int(indices[0][3]) if len(indices) > 0 else 0
+    for i, (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx) in enumerate(indices):
+        if sample_start_idx != 0 or sample_end_idx != sequence_length:
+            keep[i] = False
+            continue
+        window_stage_ids = stage_ids[buffer_start_idx:buffer_end_idx]
+        if len(window_stage_ids) == 0 or np.any(window_stage_ids != window_stage_ids[0]):
+            keep[i] = False
+    return indices[keep]
+
+
 class RobotDataset(BaseDataset):
 
     def __init__(
@@ -39,9 +77,7 @@ class RobotDataset(BaseDataset):
     ):
         super().__init__()
         self.task_name = task_name
-        current_file_path = os.path.abspath(__file__)
-        parent_directory = os.path.dirname(current_file_path)
-        zarr_path = os.path.join(parent_directory, zarr_path)
+        zarr_path = resolve_zarr_path(zarr_path)
         replay_root = ReplayBuffer.create_from_path(zarr_path)
         keys = ["state", "action", "point_cloud"]
         self.has_planner_tokens = all(name in replay_root.keys() for name in ("stage_id", "source_id", "target_id"))
@@ -58,6 +94,8 @@ class RobotDataset(BaseDataset):
             pad_after=pad_after,
             episode_mask=train_mask,
         )
+        if self.has_planner_tokens:
+            self.sampler.indices = filter_indices_by_stage(self.sampler.indices, self.replay_buffer)
         self.train_mask = train_mask
         self.horizon = horizon
         self.pad_before = pad_before
@@ -72,6 +110,8 @@ class RobotDataset(BaseDataset):
             pad_after=self.pad_after,
             episode_mask=~self.train_mask,
         )
+        if self.has_planner_tokens:
+            val_set.sampler.indices = filter_indices_by_stage(val_set.sampler.indices, self.replay_buffer)
         val_set.train_mask = ~self.train_mask
         return val_set
 
