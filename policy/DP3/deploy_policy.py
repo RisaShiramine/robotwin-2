@@ -30,9 +30,6 @@ sys.path.append(os.path.join(parent_directory, '3D-Diffusion-Policy'))
 
 from dp3_policy import *
 from diffusion_policy_3d.dataset.robot_dataset import inspect_planner_tokens
-
-
-def encode_obs(observation):  # Post-Process Observation
 def encode_obs(observation, planner_tokens=None):  # Post-Process Observation
     obs = dict()
     obs['agent_pos'] = observation['joint_action']['vector']
