@@ -25,6 +25,24 @@ class PlannerTokenStateMachine:
         if self.debug:
             print(f"{self.debug_prefix} {message}")
 
+    def _lookup_stage_id(self, stage_value):
+        normalized = str(stage_value).lower().strip()
+        stage_id = self.vocab["stage"].get(normalized, 0)
+        if stage_id == 0 and normalized != "unknown":
+            raise ValueError(f"Planner stage token '{stage_value}' is missing from planner_vocab.json")
+        return stage_id
+
+    def _lookup_object_id(self, object_value):
+        if object_value is None:
+            return self.vocab["object"].get("null", 1)
+        normalized = str(object_value).lower().strip()
+        if not normalized:
+            return self.vocab["object"].get("null", 1)
+        object_id = self.vocab["object"].get(normalized, 0)
+        if object_id == 0 and normalized not in {"unknown", "null"}:
+            raise ValueError(f"Planner object token '{object_value}' is missing from planner_vocab.json")
+        return object_id
+
     def reset(self):
         self.current_stage_idx = 0
         self._debug(f"reset -> {self.describe_stage(self.current_stage_idx)}")
@@ -39,9 +57,17 @@ class PlannerTokenStateMachine:
         if stage_idx is None:
             stage_idx = self.current_stage_idx
         stage = self.stages[stage_idx]
-        stage_type = stage.get("stage_type", "unknown")
+        stage_type = stage.get("runtime_stage_type") or stage.get("stage_type", "unknown")
         source = stage.get("source_object", "unknown")
-        target = stage.get("target_object") or stage.get("target_region") or stage.get("target_support") or "null"
+        target = (
+            stage.get("runtime_target_object")
+            or stage.get("runtime_target_region")
+            or stage.get("runtime_target_support")
+            or stage.get("target_object")
+            or stage.get("target_region")
+            or stage.get("target_support")
+            or "null"
+        )
         return f"stage[{stage_idx}] type={stage_type}, source={source}, target={target}"
 
     def maybe_advance(self, obs):
@@ -58,13 +84,19 @@ class PlannerTokenStateMachine:
 
     def current_tokens(self):
         stage = self.current_stage
-        stage_id = self.vocab["stage"].get(str(stage.get("stage_type", "unknown")).lower().strip(), 0)
-        source_id = self.vocab["object"].get(str(stage.get("source_object", "unknown")).lower().strip(), 0)
-        target_value = stage.get("target_object") or stage.get("target_region") or stage.get("target_support")
-        if target_value is None:
-            target_id = self.vocab["object"].get("null", 1)
-        else:
-            target_id = self.vocab["object"].get(str(target_value).lower().strip(), 0)
+        token_stage_type = stage.get("token_stage_type") or stage.get("stage_type", "unknown")
+        token_source_object = stage.get("token_source_object") or stage.get("source_object", "unknown")
+        target_value = (
+            stage.get("token_target_object")
+            or stage.get("token_target_region")
+            or stage.get("token_target_support")
+            or stage.get("target_object")
+            or stage.get("target_region")
+            or stage.get("target_support")
+        )
+        stage_id = self._lookup_stage_id(token_stage_type)
+        source_id = self._lookup_object_id(token_source_object)
+        target_id = self._lookup_object_id(target_value)
         return {
             "stage_id": stage_id,
             "source_id": source_id,
