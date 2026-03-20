@@ -2,6 +2,14 @@
 
 This workflow converts RoboTwin task instructions into structured planner supervision with the DeepSeek API and then converts those task-level decompositions into per-timestep planner labels.
 
+If you want a one-command end-to-end pipeline for training data preparation, you can now use:
+
+```bash
+bash policy/DP3/process_planner.sh --zarr=/path/to/name.zarr
+```
+
+This wrapper will auto-run instruction aggregation, DeepSeek decomposition with resume enabled, planner label building, and final verification. If it cannot infer the instruction directory automatically, pass `--instruction-dir=/path/to/episode_jsons`.
+
 ## Step 0: batch-process official RoboTwin instruction files
 
 If you already have the official RoboTwin per-episode instruction files (`episode0.json`, `episode1.json`, ...), first aggregate them with `process_instruction_dir.py`.
