@@ -204,6 +204,61 @@ def normalize_instruction_key(text):
     return " ".join(str(text).strip().lower().split())
 
 
+def collapse_execution_stages_for_runtime(stages):
+    execution_stage_types = {
+        "align_for_pick",
+        "grasp_object",
+        "transport_in_air",
+        "place_release",
+        "retreat_and_reset",
+    }
+    if not stages or not any(str(stage.get("stage_type")) in execution_stage_types for stage in stages):
+        return stages
+
+    runtime_stages = []
+    for stage in stages:
+        stage_type = str(stage.get("stage_type") or "")
+        if stage_type != "place_release":
+            continue
+
+        source_object = stage.get("source_object")
+        support_object = stage.get("support_object")
+        target_region = stage.get("target_region") or "center"
+        target_support = stage.get("target_support")
+        is_table_stage = support_object in {None, "table", "center", "table_center"} or target_support in {None, "table", "center", "table_center"}
+
+        if is_table_stage:
+            runtime_stages.append(
+                {
+                    **stage,
+                    "stage": f"move_{source_object}_to_{target_region}",
+                    "stage_type": "move_to_region",
+                    "action_type": "move",
+                    "target_object": None,
+                    "support_object": None,
+                    "target_support": None,
+                    "target_region": target_region,
+                    "spatial_relation": None,
+                }
+            )
+        else:
+            runtime_stages.append(
+                {
+                    **stage,
+                    "stage": f"stack_{source_object}_on_{support_object}",
+                    "stage_type": "stack_on_support",
+                    "action_type": "stack",
+                    "target_object": support_object,
+                    "support_object": support_object,
+                    "target_support": support_object,
+                    "target_region": target_region,
+                    "spatial_relation": "over",
+                }
+            )
+
+    return runtime_stages or stages
+
+
 def load_planner_stages_from_decomposition(path, instruction):
     if not path or not instruction:
         return None
@@ -226,7 +281,9 @@ def load_planner_stages_from_decomposition(path, instruction):
         decomposition_instruction = decomposition.get("instruction")
         if target in {normalize_instruction_key(record_instruction), normalize_instruction_key(decomposition_instruction)}:
             stages = decomposition.get("stages", [])
-            return stages if stages else None
+            if not stages:
+                return None
+            return collapse_execution_stages_for_runtime(stages)
     return None
 
 
