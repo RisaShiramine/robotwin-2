@@ -73,8 +73,13 @@ class DeepSeekTaskDecomposer:
     temperature: float = 0.0
     max_retries: int = 3
     timeout: int = 60
+    max_completion_tokens: int = 1200
+    retry_backoff_max: int = 16
 
     def __post_init__(self) -> None:
+        self._build_client()
+
+    def _build_client(self) -> None:
         try:
             from openai import OpenAI
         except ModuleNotFoundError as exc:
@@ -91,6 +96,8 @@ class DeepSeekTaskDecomposer:
                 completion = self.client.chat.completions.create(
                     model=self.model,
                     temperature=self.temperature,
+                    response_format={"type": "json_object"},
+                    max_tokens=self.max_completion_tokens,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {
@@ -110,7 +117,8 @@ class DeepSeekTaskDecomposer:
                 last_error = exc
                 if attempt == self.max_retries:
                     break
-                time.sleep(min(2**attempt, 8))
+                self._build_client()
+                time.sleep(min(2**attempt, self.retry_backoff_max))
         raise RuntimeError(f"Failed to decompose instruction after {self.max_retries} attempts: {instruction}") from last_error
 
 
@@ -122,6 +130,8 @@ def decompose_instruction_batch(
     temperature: float = 0.0,
     max_retries: int = 3,
     timeout: int = 60,
+    max_completion_tokens: int = 1200,
+    retry_backoff_max: int = 16,
 ) -> List[Dict[str, Any]]:
     decomposer = DeepSeekTaskDecomposer(
         api_key=api_key,
@@ -130,6 +140,8 @@ def decompose_instruction_batch(
         temperature=temperature,
         max_retries=max_retries,
         timeout=timeout,
+        max_completion_tokens=max_completion_tokens,
+        retry_backoff_max=retry_backoff_max,
     )
     return [decomposer.decompose_instruction(instruction) for instruction in instructions]
 
