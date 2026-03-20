@@ -259,6 +259,23 @@ def infer_stage_ranges_from_zarr_episode(
     ends = boundaries + [length]
     return [(start, end) for start, end in zip(starts, ends) if start < end]
 
+
+def infer_or_fallback_stage_ranges(
+    episode_state: np.ndarray,
+    episode_action: np.ndarray,
+    num_stages: int,
+    velocity_threshold: float,
+) -> Tuple[List[Tuple[int, int]], str]:
+    inferred_ranges = infer_stage_ranges_from_zarr_episode(
+        episode_state=episode_state,
+        episode_action=episode_action,
+        num_stages=num_stages,
+        velocity_threshold=velocity_threshold,
+    )
+    if len(inferred_ranges) == num_stages:
+        return inferred_ranges, "zarr_velocity"
+    return evenly_partition(len(episode_state), num_stages), "uniform_fallback_after_zarr_velocity"
+
 def match_decomposition_row(index: Dict[str, Dict[str, Dict[str, Any]]], episode_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     task_id = episode_meta.get("task_id")
     if task_id is not None:
@@ -369,6 +386,7 @@ def main() -> None:
     total_rows = 0
     episodes_written = 0
     missing_instruction_matches: List[Dict[str, Any]] = []
+    boundary_mode_counts: Dict[str, int] = {"explicit_stage_boundaries": 0, "zarr_velocity": 0, "uniform": 0, "uniform_fallback_after_zarr_velocity": 0}
 
     with output_path.open("w", encoding="utf-8") as f:
         for episode_id in sorted(episode_instruction_map):
@@ -387,8 +405,9 @@ def main() -> None:
                 raise ValueError(f"No stages found for episode {episode_id}.")
             if episode_id in stage_boundaries:
                 stage_ranges = normalize_stage_boundaries(stage_boundaries[episode_id], len(stages), episode_length)
+                episode_boundary_mode = "explicit_stage_boundaries"
             elif args.boundary_mode == "zarr_velocity" and episode_id in zarr_episode_state_action:
-                stage_ranges = infer_stage_ranges_from_zarr_episode(
+                stage_ranges, episode_boundary_mode = infer_or_fallback_stage_ranges(
                     episode_state=zarr_episode_state_action[episode_id]["state"],
                     episode_action=zarr_episode_state_action[episode_id]["action"],
                     num_stages=len(stages),
@@ -396,10 +415,12 @@ def main() -> None:
                 )
             else:
                 stage_ranges = evenly_partition(episode_length, len(stages))
+                episode_boundary_mode = "uniform"
             if len(stage_ranges) != len(stages):
                 raise ValueError(
                     f"Episode {episode_id} produced {len(stage_ranges)} ranges for {len(stages)} stages."
                 )
+            boundary_mode_counts[episode_boundary_mode] = boundary_mode_counts.get(episode_boundary_mode, 0) + 1
 
             label_rows = build_label_rows(
                 episode_id=episode_id,
@@ -441,6 +462,7 @@ def main() -> None:
         "matched_episode_ids": written_episode_ids,
         "instruction_source": args.instruction_source if args.instruction_dir else "episode_instruction_map",
         "alignment_mode": "explicit_stage_boundaries" if stage_boundaries else args.boundary_mode,
+        "per_episode_alignment_mode_counts": boundary_mode_counts,
         "stage_normalization": not args.disable_stage_normalization,
         "episode_lengths_source": {
             "json": bool(args.episode_lengths_json),
