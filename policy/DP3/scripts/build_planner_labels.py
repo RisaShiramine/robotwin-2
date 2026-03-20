@@ -2,9 +2,18 @@
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
 
-TABLE_SUPPORTS = {None, "table", "center", "table_center"}
+from planner_decomposition_utils import (
+    build_stage_label,
+    dedupe_keep_order,
+    infer_source_object,
+    infer_stage_type,
+    infer_support_object,
+    infer_target_region,
+    normalize_decomposition_row,
+)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert task decompositions into per-timestep planner labels.")
@@ -18,6 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage-boundaries-json", default=None, help="Optional JSON file mapping episode ids to explicit stage ranges.")
     parser.add_argument("--summary-output", default=None, help="Optional summary JSON path.")
     parser.add_argument("--disable-stage-normalization", action="store_true", help="Use decomposition stages as-is without stack-stage normalization.")
+    parser.add_argument("--boundary-mode", default="zarr_velocity", choices=["zarr_velocity", "uniform"], help="How to infer stage ranges when explicit boundaries are not provided.")
+    parser.add_argument("--velocity-threshold", type=float, default=0.0, help="Optional explicit stationary threshold on ||action - state|| used for zarr-driven stage boundary inference. <=0 uses an adaptive threshold.")
     return parser.parse_args()
 
 def normalize_text_key(value: Optional[str]) -> Optional[str]:
@@ -160,123 +171,93 @@ def normalize_stage_boundaries(stage_ranges: List[Dict[str, int]], num_stages: i
         normalized.append((start, end))
     return normalized
 
-def dedupe_keep_order(items: Iterable[Any]) -> List[Any]:
-    seen = set()
-    result = []
-    for item in items:
-        if item in (None, "", []):
-            continue
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-    return result
+def load_episode_state_action_from_zarr(zarr_path: str) -> Dict[int, Dict[str, np.ndarray]]:
+    import zarr
 
-def is_table_support(value: Any) -> bool:
-    return value in TABLE_SUPPORTS
+    root = zarr.open(str(Path(zarr_path).expanduser()), mode="r")
+    state = np.asarray(root["data"]["state"][:], dtype=np.float64)
+    action = np.asarray(root["data"]["action"][:], dtype=np.float64)
+    episode_ends = [int(value) for value in root["meta"]["episode_ends"][:]]
 
-def infer_stage_type(stage: Dict[str, Any]) -> str:
-    if stage.get("stage_type"):
-        return stage["stage_type"]
-    target_support = stage.get("target_support")
-    target_location = stage.get("target_location")
-    action_type = stage.get("action_type")
-    if action_type == "stack" or (target_support and not is_table_support(target_support)):
-        return "stack_on_support"
-    if target_location:
-        return "move_to_region"
-    return action_type or "other"
-
-def infer_source_object(stage: Dict[str, Any]) -> Optional[str]:
-    return stage.get("source_object") or stage.get("target_object")
-
-def infer_support_object(stage: Dict[str, Any]) -> Optional[str]:
-    support = stage.get("support_object") or stage.get("target_support")
-    return None if is_table_support(support) else support
-
-def infer_target_region(stage: Dict[str, Any]) -> Optional[str]:
-    return stage.get("target_region") or stage.get("target_location")
-
-def build_stage_label(stage: Dict[str, Any]) -> str:
-    source_object = infer_source_object(stage)
-    support_object = infer_support_object(stage)
-    target_region = infer_target_region(stage)
-    if support_object:
-        return f"{source_object} on {support_object}"
-    if target_region:
-        return f"{source_object} at {target_region}"
-    action_type = stage.get("action_type") or stage.get("stage_type") or "stage"
-    return f"{action_type} {source_object}".strip()
-
-def topologically_order_stack_stages(stack_stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    ordered = []
-    placed = set()
-    remaining = stack_stages[:]
-    while remaining:
-        progress = False
-        for stage in list(remaining):
-            support = infer_support_object(stage)
-            if support is None or support in placed:
-                ordered.append(stage)
-                placed.add(infer_source_object(stage))
-                remaining.remove(stage)
-                progress = True
-        if not progress:
-            ordered.extend(remaining)
-            break
-    return ordered
-
-def normalize_decomposition_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    decomposition = row["decomposition"]
-    stages = decomposition.get("stages", [])
-    if len(stages) <= 1:
-        return row
-
-    stack_stages = [stage for stage in stages if infer_support_object(stage) is not None]
-    if not stack_stages:
-        return row
-
-    ordered_stack_stages = topologically_order_stack_stages(stack_stages)
-    base_object = infer_support_object(ordered_stack_stages[0])
-    base_stage = None
-    for stage in stages:
-        if infer_source_object(stage) == base_object and infer_support_object(stage) is None:
-            base_stage = dict(stage)
-            break
-
-    if base_stage is None:
-        base_stage = {
-            "stage": f"place_{str(base_object).replace(' ', '_')}_at_center",
-            "action_type": "place",
-            "stage_type": "establish_base",
-            "source_object": base_object,
-            "support_object": None,
-            "target_object": base_object,
-            "target_support": "table",
-            "target_location": "center",
-            "target_region": "center",
-            "spatial_relation": "on",
-            "preferred_arm": None,
-            "required_objects": [base_object],
-            "completed_subgoals_before_stage": [],
-            "success_criteria": f"{base_object} is placed at the center of the table.",
+    episode_data: Dict[int, Dict[str, np.ndarray]] = {}
+    start = 0
+    for episode_id, end in enumerate(episode_ends):
+        episode_data[episode_id] = {
+            "state": state[start:end],
+            "action": action[start:end],
         }
+        start = end
+    return episode_data
 
-    normalized_stages = [base_stage]
-    normalized_stages.extend(dict(stage) for stage in ordered_stack_stages)
 
-    completed = []
-    for idx, stage in enumerate(normalized_stages):
-        stage.setdefault("stage_type", infer_stage_type(stage))
-        stage.setdefault("source_object", infer_source_object(stage))
-        stage.setdefault("support_object", infer_support_object(stage))
-        stage.setdefault("target_region", infer_target_region(stage))
-        stage["completed_subgoals_before_stage"] = completed[:]
-        completed.append(build_stage_label(stage))
+def _choose_stationary_threshold(velocity_norm: np.ndarray, explicit_threshold: float) -> float:
+    if explicit_threshold > 0:
+        return explicit_threshold
+    positive = velocity_norm[velocity_norm > 0]
+    if positive.size == 0:
+        return 1e-6
+    floor = float(np.percentile(positive, 10))
+    ceiling = float(np.percentile(positive, 35))
+    return max(1e-6, min(floor * 1.5, ceiling))
 
-    normalized = dict(row)
-    normalized["decomposition"] = dict(decomposition)
-    normalized["decomposition"]["stages"] = normalized_stages
-    return normalized
+
+def _find_stationary_centers(velocity_norm: np.ndarray, threshold: float) -> List[int]:
+    stationary = velocity_norm <= threshold
+    centers: List[int] = [0]
+    run_start: Optional[int] = None
+    for idx, flag in enumerate(stationary):
+        if flag and run_start is None:
+            run_start = idx
+        elif not flag and run_start is not None:
+            centers.append((run_start + idx - 1) // 2)
+            run_start = None
+    if run_start is not None:
+        centers.append((run_start + len(stationary) - 1) // 2)
+    if not centers or centers[-1] != len(velocity_norm):
+        centers.append(len(velocity_norm))
+    return dedupe_keep_order(max(0, min(len(velocity_norm), value)) for value in centers)
+
+
+def _select_boundary_positions(candidate_positions: List[int], num_stages: int, length: int) -> List[int]:
+    if num_stages <= 1:
+        return []
+    desired_positions = [round(length * idx / num_stages) for idx in range(1, num_stages)]
+    selected: List[int] = []
+    used = set()
+    for desired in desired_positions:
+        available = [pos for pos in candidate_positions if 0 < pos < length and pos not in used]
+        if available:
+            chosen = min(available, key=lambda pos: (abs(pos - desired), pos))
+            used.add(chosen)
+            selected.append(int(chosen))
+        else:
+            selected.append(int(desired))
+    selected = sorted(selected)
+    for idx, value in enumerate(selected):
+        lower = idx + 1
+        upper = length - (len(selected) - idx - 1)
+        selected[idx] = max(lower, min(upper, value))
+    return selected
+
+
+def infer_stage_ranges_from_zarr_episode(
+    episode_state: np.ndarray,
+    episode_action: np.ndarray,
+    num_stages: int,
+    velocity_threshold: float,
+) -> List[Tuple[int, int]]:
+    length = int(len(episode_state))
+    if length == 0:
+        return []
+    if num_stages == 1:
+        return [(0, length)]
+    velocity_norm = np.linalg.norm(episode_action - episode_state, axis=1)
+    threshold = _choose_stationary_threshold(velocity_norm, velocity_threshold)
+    stationary_centers = _find_stationary_centers(velocity_norm, threshold)
+    boundaries = _select_boundary_positions(stationary_centers, num_stages, length)
+    starts = [0] + boundaries
+    ends = boundaries + [length]
+    return [(start, end) for start, end in zip(starts, ends) if start < end]
 
 def match_decomposition_row(index: Dict[str, Dict[str, Dict[str, Any]]], episode_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     task_id = episode_meta.get("task_id")
@@ -375,6 +356,7 @@ def main() -> None:
 
     explicit_episode_lengths = load_episode_lengths(args.episode_lengths_json) if args.episode_lengths_json else {}
     zarr_episode_lengths = load_episode_lengths_from_zarr(args.dp3_zarr) if args.dp3_zarr else {}
+    zarr_episode_state_action = load_episode_state_action_from_zarr(args.dp3_zarr) if args.dp3_zarr and args.boundary_mode == "zarr_velocity" else {}
     episode_lengths = merge_episode_lengths(explicit_episode_lengths, zarr_episode_lengths)
     if not episode_lengths:
         raise ValueError("Provide --episode-lengths-json, --dp3-zarr, or both.")
@@ -398,15 +380,26 @@ def main() -> None:
                 missing_instruction_matches.append({"episode_id": episode_id, **episode_meta})
                 continue
             if not args.disable_stage_normalization:
-                row = normalize_decomposition_row(row)
+                row = normalize_decomposition_row(row, expand_stack_execution=True)
             episode_length = episode_lengths[episode_id]
             stages = row["decomposition"]["stages"]
             if not stages:
                 raise ValueError(f"No stages found for episode {episode_id}.")
             if episode_id in stage_boundaries:
                 stage_ranges = normalize_stage_boundaries(stage_boundaries[episode_id], len(stages), episode_length)
+            elif args.boundary_mode == "zarr_velocity" and episode_id in zarr_episode_state_action:
+                stage_ranges = infer_stage_ranges_from_zarr_episode(
+                    episode_state=zarr_episode_state_action[episode_id]["state"],
+                    episode_action=zarr_episode_state_action[episode_id]["action"],
+                    num_stages=len(stages),
+                    velocity_threshold=args.velocity_threshold,
+                )
             else:
                 stage_ranges = evenly_partition(episode_length, len(stages))
+            if len(stage_ranges) != len(stages):
+                raise ValueError(
+                    f"Episode {episode_id} produced {len(stage_ranges)} ranges for {len(stages)} stages."
+                )
 
             label_rows = build_label_rows(
                 episode_id=episode_id,
@@ -447,7 +440,7 @@ def main() -> None:
         "missing_instruction_matches": missing_instruction_matches,
         "matched_episode_ids": written_episode_ids,
         "instruction_source": args.instruction_source if args.instruction_dir else "episode_instruction_map",
-        "alignment_mode": "explicit_stage_boundaries" if stage_boundaries else "uniform_partition",
+        "alignment_mode": "explicit_stage_boundaries" if stage_boundaries else args.boundary_mode,
         "stage_normalization": not args.disable_stage_normalization,
         "episode_lengths_source": {
             "json": bool(args.episode_lengths_json),
