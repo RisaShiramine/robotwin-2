@@ -13,6 +13,6 @@ dp3_task: demo_task
 expert_data_num: null
 use_rgb: false
 max_consecutive_errors: 20
-planner_vocab_path: null
-planner_decomposition_path: null
+planner_vocab_path: /mnt/hdd/Project/RoboTwin/policy/DP3/data/planner_vocab.json
+planner_decomposition_path: /mnt/hdd/Project/RoboTwin/policy/DP3/examples/official_task_decomposition_output.json
 planner_debug: true
