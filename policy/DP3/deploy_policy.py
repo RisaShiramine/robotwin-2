@@ -32,6 +32,7 @@ from dp3_policy import *
 from diffusion_policy_3d.dataset.robot_dataset import inspect_planner_tokens
 
 
+def encode_obs(observation):  # Post-Process Observation
 def encode_obs(observation, planner_tokens=None):  # Post-Process Observation
     obs = dict()
     obs['agent_pos'] = observation['joint_action']['vector']
@@ -145,6 +146,7 @@ def get_model(usr_args):
 
 
 def eval(TASK_ENV, model, observation):
+    obs = encode_obs(observation)  # Post-Process Observation
     planner_tokens = None
     if hasattr(model, "env_runner") and getattr(model.env_runner, "planner_controller", None) is not None:
         planner_tokens = model.env_runner.planner_controller.current_tokens()
@@ -161,6 +163,7 @@ def eval(TASK_ENV, model, observation):
     for action in actions:  # Execute each step of the action
         TASK_ENV.take_action(action)
         observation = TASK_ENV.get_obs()
+        obs = encode_obs(observation)
         planner_tokens = None
         if hasattr(model, "env_runner") and getattr(model.env_runner, "planner_controller", None) is not None:
             next_obs = encode_obs(observation)
