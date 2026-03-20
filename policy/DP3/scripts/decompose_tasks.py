@@ -13,6 +13,7 @@ if str(PLANNER_DIR) not in sys.path:
     sys.path.insert(0, str(PLANNER_DIR))
 
 from deepseek_task_decomposer import DeepSeekTaskDecomposer, load_api_key
+from planner_decomposition_utils import normalize_decomposition_row
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,6 +78,7 @@ def main() -> None:
             "instruction": instruction,
             "decomposition": decomposition,
         }
+        row = normalize_decomposition_row(row, expand_stack_execution=True)
         results[split].append(row)
         flat_rows.append(row)
         print(f"[{split}] {idx + 1}: decomposed")
