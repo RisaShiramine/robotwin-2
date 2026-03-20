@@ -55,6 +55,14 @@ python policy/DP3/scripts/decompose_tasks.py \
   --deduplicate
 ```
 
+For unstable networks, it is recommended to add:
+
+```bash
+--resume --timeout 180 --max-retries 8
+```
+
+`--resume` reuses rows already present in the existing output files and `decompose_tasks.py` now flushes progress after each successfully decomposed instruction, so an interrupted run can continue instead of restarting from scratch.
+
 ### Decomposition output shape
 
 Each instruction is expanded into a normalized planner record with:
