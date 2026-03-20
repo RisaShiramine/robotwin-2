@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 TABLE_SUPPORTS = {None, "table", "center", "table_center"}
@@ -40,6 +41,8 @@ def infer_source_object(stage: Dict[str, Any]) -> Optional[str]:
 
 def infer_support_object(stage: Dict[str, Any]) -> Optional[str]:
     support = stage.get("support_object") or stage.get("target_support")
+    if support in (None, "", []) and (stage.get("action_type") == "stack" or stage.get("stage_type") == "stack_on_support"):
+        support = stage.get("target_object")
     return None if is_table_support(support) else support
 
 
@@ -126,12 +129,94 @@ def _find_source_stage(stage_lookup: Dict[Any, Dict[str, Any]], source_object: A
     }
 
 
-def _build_stack_execution_stages(stages: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+def _normalize_phrase(text: Any) -> str:
+    return " ".join(str(text).strip().lower().replace("_", " ").split())
+
+
+def _build_object_aliases(scene_objects: List[Any]) -> Dict[str, Any]:
+    aliases: Dict[str, Any] = {}
+    for obj in scene_objects:
+        normalized = _normalize_phrase(obj)
+        aliases[normalized] = obj
+        if normalized.endswith(" block"):
+            aliases[normalized[:-6]] = obj
+    return aliases
+
+
+def _extract_stack_relation_pairs(text: Any, scene_objects: List[Any]) -> List[Tuple[Any, Any]]:
+    if not text:
+        return []
+    aliases = _build_object_aliases(scene_objects)
+    alias_keys = sorted(aliases.keys(), key=len, reverse=True)
+    if not alias_keys:
+        return []
+
+    relation_pairs: List[Tuple[int, Any, Any]] = []
+    lowered = _normalize_phrase(text)
+    for source_alias in alias_keys:
+        for support_alias in alias_keys:
+            if source_alias == support_alias:
+                continue
+            pattern = rf"\b{re.escape(source_alias)}\b\s+(?:block\s+)?(?:on|over|onto)\s+\b{re.escape(support_alias)}\b"
+            for match in re.finditer(pattern, lowered):
+                relation_pairs.append((match.start(), aliases[source_alias], aliases[support_alias]))
+
+    ordered_pairs: List[Tuple[Any, Any]] = []
+    seen = set()
+    for _, source_obj, support_obj in sorted(relation_pairs, key=lambda item: item[0]):
+        key = (source_obj, support_obj)
+        if key not in seen:
+            seen.add(key)
+            ordered_pairs.append(key)
+    return ordered_pairs
+
+
+def _build_relation_driven_stack_stages(
+    relation_pairs: List[Tuple[Any, Any]],
+    stage_lookup: Dict[Any, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    relation_stage_lookup: Dict[Any, Dict[str, Any]] = {}
+    for source_object, support_object in relation_pairs:
+        raw_stage = dict(stage_lookup.get(source_object, {}))
+        raw_stage.setdefault("source_object", source_object)
+        raw_stage["target_object"] = support_object
+        raw_stage["support_object"] = support_object
+        raw_stage["target_support"] = support_object
+        raw_stage.setdefault("target_region", "center")
+        raw_stage.setdefault("target_location", raw_stage.get("target_region"))
+        raw_stage.setdefault("action_type", "stack")
+        raw_stage.setdefault("stage_type", "stack_on_support")
+        relation_stage_lookup[source_object] = raw_stage
+
+    ordered = []
+    placed = set()
+    remaining = [relation_stage_lookup[source] for source, _ in relation_pairs if source in relation_stage_lookup]
+    while remaining:
+        progress = False
+        for stage in list(remaining):
+            support = infer_support_object(stage)
+            if support is None or support not in relation_stage_lookup or support in placed:
+                ordered.append(stage)
+                placed.add(infer_source_object(stage))
+                remaining.remove(stage)
+                progress = True
+        if not progress:
+            ordered.extend(remaining)
+            break
+    return ordered
+
+
+def _build_stack_execution_stages(stages: List[Dict[str, Any]], relation_pairs: Optional[List[Tuple[Any, Any]]] = None) -> Optional[List[Dict[str, Any]]]:
     stack_stages = [dict(stage) for stage in stages if infer_support_object(stage) is not None]
-    if not stack_stages:
+    if relation_pairs:
+        stage_lookup = {infer_source_object(stage): dict(stage) for stage in stages if infer_source_object(stage) is not None}
+        ordered_stack_stages = _build_relation_driven_stack_stages(relation_pairs, stage_lookup)
+    else:
+        ordered_stack_stages = topologically_order_stack_stages(stack_stages)
+
+    if not ordered_stack_stages:
         return None
 
-    ordered_stack_stages = topologically_order_stack_stages(stack_stages)
     base_object = infer_support_object(ordered_stack_stages[0])
     move_like_stage_by_object = {
         infer_source_object(stage): dict(stage)
@@ -247,8 +332,15 @@ def normalize_decomposition_row(row: Dict[str, Any], expand_stack_execution: boo
     if len(stages) <= 1:
         return row
 
+    relation_pairs = []
+    scene_objects = decomposition.get("scene_objects", [])
+    for relation_text in (row.get("instruction"), decomposition.get("instruction"), decomposition.get("canonical_task")):
+        relation_pairs = _extract_stack_relation_pairs(relation_text, scene_objects)
+        if relation_pairs:
+            break
+
     if expand_stack_execution:
-        expanded_stages = _build_stack_execution_stages(stages)
+        expanded_stages = _build_stack_execution_stages(stages, relation_pairs=relation_pairs)
         if expanded_stages:
             normalized_stages = expanded_stages
         else:

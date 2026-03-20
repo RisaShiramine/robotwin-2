@@ -28,10 +28,12 @@ current_file_path = os.path.abspath(__file__)
 parent_directory = os.path.dirname(current_file_path)
 
 sys.path.append(os.path.join(parent_directory, '3D-Diffusion-Policy'))
+sys.path.append(os.path.join(parent_directory, 'scripts'))
 
 from dp3_policy import *
 from diffusion_policy_3d.dataset.robot_dataset import inspect_planner_tokens
 from diffusion_policy_3d.env_runner.planner_controller import PlannerTokenStateMachine
+from planner_decomposition_utils import normalize_decomposition_row
 
 
 
@@ -189,11 +191,24 @@ def is_stack_stage_complete(task_env, stage):
 
 def build_stack_blocks_completion_rule(task_env):
     def completion_rule(obs, stage):
-        stage_type = normalize_object_key(stage.get("stage_type")) or "unknown"
+        runtime_stage = dict(stage)
+        for runtime_key, base_key in (
+            ("runtime_stage", "stage"),
+            ("runtime_stage_type", "stage_type"),
+            ("runtime_target_object", "target_object"),
+            ("runtime_support_object", "support_object"),
+            ("runtime_target_support", "target_support"),
+            ("runtime_target_region", "target_region"),
+            ("runtime_spatial_relation", "spatial_relation"),
+        ):
+            if runtime_key in stage:
+                runtime_stage[base_key] = stage.get(runtime_key)
+
+        stage_type = normalize_object_key(runtime_stage.get("stage_type")) or "unknown"
         if stage_type in {"move to region", "move_to_region", "establish base", "establish_base"}:
-            return is_move_stage_complete(task_env, stage)
+            return is_move_stage_complete(task_env, runtime_stage)
         if stage_type in {"stack on support", "stack_on_support"}:
-            return is_stack_stage_complete(task_env, stage)
+            return is_stack_stage_complete(task_env, runtime_stage)
         return False
 
     return completion_rule
@@ -231,28 +246,28 @@ def collapse_execution_stages_for_runtime(stages):
             runtime_stages.append(
                 {
                     **stage,
-                    "stage": f"move_{source_object}_to_{target_region}",
-                    "stage_type": "move_to_region",
-                    "action_type": "move",
-                    "target_object": None,
-                    "support_object": None,
-                    "target_support": None,
-                    "target_region": target_region,
-                    "spatial_relation": None,
+                    "runtime_stage": f"move_{source_object}_to_{target_region}",
+                    "runtime_stage_type": "move_to_region",
+                    "runtime_action_type": "move",
+                    "runtime_target_object": None,
+                    "runtime_support_object": None,
+                    "runtime_target_support": None,
+                    "runtime_target_region": target_region,
+                    "runtime_spatial_relation": None,
                 }
             )
         else:
             runtime_stages.append(
                 {
                     **stage,
-                    "stage": f"stack_{source_object}_on_{support_object}",
-                    "stage_type": "stack_on_support",
-                    "action_type": "stack",
-                    "target_object": support_object,
-                    "support_object": support_object,
-                    "target_support": support_object,
-                    "target_region": target_region,
-                    "spatial_relation": "over",
+                    "runtime_stage": f"stack_{source_object}_on_{support_object}",
+                    "runtime_stage_type": "stack_on_support",
+                    "runtime_action_type": "stack",
+                    "runtime_target_object": support_object,
+                    "runtime_support_object": support_object,
+                    "runtime_target_support": support_object,
+                    "runtime_target_region": target_region,
+                    "runtime_spatial_relation": "over",
                 }
             )
 
@@ -280,7 +295,16 @@ def load_planner_stages_from_decomposition(path, instruction):
         decomposition = record.get("decomposition", {})
         decomposition_instruction = decomposition.get("instruction")
         if target in {normalize_instruction_key(record_instruction), normalize_instruction_key(decomposition_instruction)}:
-            stages = decomposition.get("stages", [])
+            normalized_record = normalize_decomposition_row(
+                {
+                    "split": record.get("split"),
+                    "index": record.get("index"),
+                    "instruction": record_instruction or decomposition_instruction,
+                    "decomposition": decomposition,
+                },
+                expand_stack_execution=True,
+            )
+            stages = normalized_record.get("decomposition", {}).get("stages", [])
             if not stages:
                 return None
             return collapse_execution_stages_for_runtime(stages)
