@@ -13,3 +13,5 @@ dp3_task: demo_task
 expert_data_num: null
 use_rgb: false
 max_consecutive_errors: 20
+planner_vocab_path: null
+planner_decomposition_path: null
