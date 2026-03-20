@@ -2,6 +2,14 @@
 
 This workflow converts RoboTwin task instructions into structured planner supervision with the DeepSeek API and then converts those task-level decompositions into per-timestep planner labels.
 
+If you want a one-command end-to-end pipeline for training data preparation, you can now use:
+
+```bash
+bash policy/DP3/process_planner.sh --zarr=/path/to/name.zarr
+```
+
+This wrapper will auto-run instruction aggregation, DeepSeek decomposition with resume enabled, planner label building, and final verification. If it cannot infer the instruction directory automatically, pass `--instruction-dir=/path/to/episode_jsons`.
+
 ## Step 0: batch-process official RoboTwin instruction files
 
 If you already have the official RoboTwin per-episode instruction files (`episode0.json`, `episode1.json`, ...), first aggregate them with `process_instruction_dir.py`.
@@ -55,6 +63,14 @@ python policy/DP3/scripts/decompose_tasks.py \
   --deduplicate
 ```
 
+For unstable networks, it is recommended to add:
+
+```bash
+--resume --timeout 180 --max-retries 8
+```
+
+`--resume` reuses rows already present in the existing output files and `decompose_tasks.py` now flushes progress after each successfully decomposed instruction, so an interrupted run can continue instead of restarting from scratch.
+
 ### Decomposition output shape
 
 Each instruction is expanded into a normalized planner record with:
@@ -96,11 +112,7 @@ You need:
 2. A mapping from `episode_id` to the exact instruction used in that episode
 3. Episode transition lengths (either from a JSON file or directly from a DP3 zarr via `--dp3-zarr`)
 
-<<<<<<< codex/implement-dual-data-stream-for-dp3-c3floc
 The safest setup is to pass the exact DP3 zarr that training will read. In that mode, the builder derives episode lengths from `meta/episode_ends`, so the `flat_index`, `episode_id`, and `timestep` layout comes from the same source of truth as the training dataset.
-
-=======
->>>>>>> main
 ### Minimal example
 
 ```bash
@@ -138,9 +150,23 @@ python policy/DP3/scripts/build_planner_labels.py \
 
 ### Alignment mode
 
-By default the script uses a **uniform partition** baseline: it splits each episode evenly across all planner stages.
+By default the script uses **zarr velocity boundary inference**: it looks at the DP3 zarr `state` / `action` pairs, computes a simple motion proxy `||action - state||`, detects low-velocity plateaus, and uses those near-stop moments as stage boundaries. This is meant to better match RoboTwin execution videos than a pure uniform split.
 
-By default the script also applies **stack-stage normalization** before alignment. This now triggers whenever stack-like support relations are present, even if the upstream decomposition forgot to label the task category as `stack`. For stack tasks, it collapses redundant `move/place_*_at_center` stages into a more execution-oriented sequence such as `place_red_at_center -> stack_green_on_red -> stack_blue_on_green`. If you want to keep the raw decomposition stages, add:
+By default the script also applies **stack-stage normalization** before alignment. For stack tasks, the decomposition is expanded into an execution-oriented per-block sequence following the color/object order in the instruction:
+
+- `align_*`
+- `grasp_*`
+- `transport_*`
+- `place_release_*`
+- `retreat_reset_*`
+
+If you want to fall back to the previous even split, add:
+
+```bash
+--boundary-mode uniform
+```
+
+If you want to keep the raw decomposition stages, add:
 
 ```bash
 --disable-stage-normalization
@@ -196,7 +222,6 @@ Each output JSONL row contains:
 
 This output is meant for planner supervision. DP3 should continue reading the original zarr with `point_cloud`, `state`, and `action`.
 
-<<<<<<< codex/implement-dual-data-stream-for-dp3-c3floc
 ## Step 2.5: verify that episodes are correct and aligned with the zarr
 
 If you are asking “how do I know the decomposed episode is correct and that it lines up with the zarr training data?”, there are two separate checks:
@@ -236,9 +261,6 @@ A practical workflow is:
 2. Open the summary JSON and confirm `missing_instruction_matches` is empty.
 3. Run `verify_planner_labels.py` and confirm `"passed": true`.
 4. Only then point training at that zarr + planner label pair.
-
-=======
->>>>>>> main
 
 ## Step 3: use planner labels for training
 
