@@ -312,8 +312,13 @@ def load_planner_stages_from_decomposition(path, instruction):
 
 
 def maybe_init_planner_controller(TASK_ENV, model):
-    if getattr(model.env_runner, "planner_controller", None) is not None:
-        return
+    instruction = TASK_ENV.get_instruction()
+
+    existing_controller = getattr(model.env_runner, "planner_controller", None)
+    if existing_controller is not None:
+        # If the instruction hasn't changed, we don't need to rebuild the controller
+        if getattr(existing_controller, "instruction", None) == instruction:
+            return
 
     runtime_cfg = getattr(model, "planner_runtime", None)
     if not runtime_cfg:
@@ -349,6 +354,7 @@ def maybe_init_planner_controller(TASK_ENV, model):
         debug=bool(runtime_cfg.get("planner_debug", True)),
         debug_prefix=f"[Planner][{TASK_ENV.__class__.__name__}]",
     )
+    controller.instruction = instruction
     model.set_planner_controller(controller)
     planner_debug_log(model, f"controller initialized for instruction: {instruction}", force=True)
     log_controller_state(model, "initial stage")

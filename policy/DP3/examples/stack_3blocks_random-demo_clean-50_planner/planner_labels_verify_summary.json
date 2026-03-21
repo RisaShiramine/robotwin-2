@@ -1,0 +1,12 @@
+{
+  "planner_labels": "/mnt/hdd/Project/RoboTwin/policy/DP3/examples/stack_3blocks_random-demo_clean-50_planner/planner_labels.jsonl",
+  "dp3_zarr": "/mnt/hdd/Project/RoboTwin/policy/DP3/data/stack_3blocks_random-demo_clean-50.zarr",
+  "row_count": 23632,
+  "zarr_transition_count": 23632,
+  "zarr_episode_count": 50,
+  "passed": true,
+  "errors": [],
+  "warnings": [],
+  "instruction_mismatches": [],
+  "missing_episodes": []
+}
