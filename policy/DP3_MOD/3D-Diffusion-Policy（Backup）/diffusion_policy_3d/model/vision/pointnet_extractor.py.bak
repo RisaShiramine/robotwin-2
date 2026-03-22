@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 import copy
 
 from typing import Optional, Dict, Tuple, Union, List, Type
@@ -94,12 +95,8 @@ class PointNetEncoderXYZRGB(nn.Module):
         else:
             raise NotImplementedError(f"final_norm: {final_norm}")
 
-    def forward(self, x, point_weight=None):
+    def forward(self, x):
         x = self.mlp(x)
-        if point_weight is not None:
-            if point_weight.dim() == 2:
-                point_weight = point_weight.unsqueeze(-1)
-            x = x * point_weight
         x = torch.max(x, 1)[0]
         x = self.final_projection(x)
         return x
@@ -166,12 +163,8 @@ class PointNetEncoderXYZ(nn.Module):
             self.mlp[6].register_forward_hook(self.save_feature)
             self.mlp[6].register_backward_hook(self.save_gradient)
 
-    def forward(self, x, point_weight=None):
+    def forward(self, x):
         x = self.mlp(x)
-        if point_weight is not None:
-            if point_weight.dim() == 2:
-                point_weight = point_weight.unsqueeze(-1)
-            x = x * point_weight
         x = torch.max(x, 1)[0]
         x = self.final_projection(x)
         return x
@@ -257,18 +250,14 @@ class DP3Encoder(nn.Module):
 
     def forward(self, observations: Dict) -> torch.Tensor:
         points = observations[self.point_cloud_key]
-        point_weight = observations.get("point_weight")
         assert len(points.shape) == 3, cprint(f"point cloud shape: {points.shape}, length should be 3", "red")
         if self.use_imagined_robot:
             img_points = observations[self.imagination_key][..., :points.shape[-1]]  # align the last dim
             points = torch.concat([points, img_points], dim=1)
-            if point_weight is not None:
-                ones = torch.ones(point_weight.shape[0], img_points.shape[1], device=point_weight.device, dtype=point_weight.dtype)
-                point_weight = torch.cat([point_weight, ones], dim=1)
 
         # points = torch.transpose(points, 1, 2)   # B * 3 * N
         # points: B * 3 * (N + sum(Ni))
-        pn_feat = self.extractor(points, point_weight=point_weight)  # B * out_channel
+        pn_feat = self.extractor(points)  # B * out_channel
 
         state = observations[self.state_key]
         state_feat = self.state_mlp(state)  # B * 64

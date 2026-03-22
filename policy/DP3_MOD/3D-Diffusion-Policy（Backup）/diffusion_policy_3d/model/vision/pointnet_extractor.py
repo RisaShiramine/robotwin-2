@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 import copy
+import math
 
 from typing import Optional, Dict, Tuple, Union, List, Type
 from termcolor import cprint
@@ -94,12 +96,8 @@ class PointNetEncoderXYZRGB(nn.Module):
         else:
             raise NotImplementedError(f"final_norm: {final_norm}")
 
-    def forward(self, x, point_weight=None):
+    def forward(self, x):
         x = self.mlp(x)
-        if point_weight is not None:
-            if point_weight.dim() == 2:
-                point_weight = point_weight.unsqueeze(-1)
-            x = x * point_weight
         x = torch.max(x, 1)[0]
         x = self.final_projection(x)
         return x
@@ -166,12 +164,8 @@ class PointNetEncoderXYZ(nn.Module):
             self.mlp[6].register_forward_hook(self.save_feature)
             self.mlp[6].register_backward_hook(self.save_gradient)
 
-    def forward(self, x, point_weight=None):
+    def forward(self, x):
         x = self.mlp(x)
-        if point_weight is not None:
-            if point_weight.dim() == 2:
-                point_weight = point_weight.unsqueeze(-1)
-            x = x * point_weight
         x = torch.max(x, 1)[0]
         x = self.final_projection(x)
         return x
@@ -198,6 +192,91 @@ class PointNetEncoderXYZ(nn.Module):
         self.input_pointcloud = input[0].detach()
 
 
+class AttentionGuidanceCroppingLayer(nn.Module):
+    """
+    Predicts a task-relevant attention center and crops a local neighborhood
+    before the PointNet backbone pools over the scene.
+    """
+
+    def __init__(
+        self,
+        point_dim: int,
+        state_dim: int,
+        crop_num_points: int = 256,
+        attention_hidden_dim: int = 128,
+        attention_temperature: float = 1.0,
+        use_state_for_attention: bool = True,
+    ):
+        super().__init__()
+        self.crop_num_points = crop_num_points
+        self.attention_temperature = max(attention_temperature, 1e-6)
+        self.use_state_for_attention = use_state_for_attention
+
+        self.point_mlp = nn.Sequential(
+            nn.Linear(point_dim, attention_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(attention_hidden_dim, attention_hidden_dim),
+            nn.ReLU(),
+        )
+
+        if use_state_for_attention:
+            self.state_mlp = nn.Sequential(
+                nn.Linear(state_dim, attention_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(attention_hidden_dim, attention_hidden_dim),
+            )
+        else:
+            self.state_mlp = None
+
+        self.score_head = nn.Sequential(
+            nn.Linear(attention_hidden_dim, attention_hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(attention_hidden_dim // 2, 1),
+        )
+
+    def forward(self, points: torch.Tensor, state: Optional[torch.Tensor] = None):
+        assert points.shape[-1] >= 3, "point cloud must contain xyz coordinates"
+
+        point_feat = self.point_mlp(points)
+        if self.use_state_for_attention and state is not None:
+            state_feat = self.state_mlp(state).unsqueeze(1)
+            point_feat = point_feat + state_feat
+
+        attn_logits = self.score_head(point_feat).squeeze(-1)
+        attn_weights = F.softmax(attn_logits / self.attention_temperature, dim=1)
+
+        xyz = points[..., :3]
+        attention_center = torch.sum(attn_weights.unsqueeze(-1) * xyz, dim=1)
+
+        dist = torch.norm(xyz - attention_center.unsqueeze(1), dim=-1)
+        proximity_logits = -dist / self.attention_temperature
+        crop_logits = attn_logits + proximity_logits
+
+        num_points = min(self.crop_num_points, points.shape[1])
+        topk_idx = torch.topk(crop_logits, k=num_points, dim=1).indices
+        gather_idx = topk_idx.unsqueeze(-1).expand(-1, -1, points.shape[-1])
+        cropped_points = torch.gather(points, 1, gather_idx)
+
+        if num_points < self.crop_num_points:
+            pad_count = self.crop_num_points - num_points
+            pad_points = cropped_points[:, -1:, :].expand(-1, pad_count, -1)
+            cropped_points = torch.cat([cropped_points, pad_points], dim=1)
+
+        local_xyz = cropped_points[..., :3]
+        local_centroid = local_xyz.mean(dim=1)
+        local_min = local_xyz.min(dim=1).values
+        local_max = local_xyz.max(dim=1).values
+        bbox_extent = local_max - local_min
+
+        aux = {
+            "attention_weights": attn_weights,
+            "attention_center": attention_center,
+            "local_centroid": local_centroid,
+            "bbox_extent": bbox_extent,
+        }
+        return cropped_points, aux
+
+
 class DP3Encoder(nn.Module):
 
     def __init__(
@@ -210,6 +289,11 @@ class DP3Encoder(nn.Module):
         pointcloud_encoder_cfg=None,
         use_pc_color=False,
         pointnet_type="pointnet",
+        use_attention_guidance=False,
+        crop_num_points=256,
+        attention_hidden_dim=128,
+        attention_temperature=1.0,
+        use_state_for_attention=True,
     ):
         super().__init__()
         self.imagination_key = "imagin_robot"
@@ -232,6 +316,7 @@ class DP3Encoder(nn.Module):
 
         self.use_pc_color = use_pc_color
         self.pointnet_type = pointnet_type
+        self.use_attention_guidance = use_attention_guidance
         if pointnet_type == "pointnet":
             if use_pc_color:
                 pointcloud_encoder_cfg.in_channels = 6
@@ -253,24 +338,38 @@ class DP3Encoder(nn.Module):
         self.n_output_channels += output_dim
         self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
+        self.crop_layer = None
+        if self.use_attention_guidance:
+            self.crop_layer = AttentionGuidanceCroppingLayer(
+                point_dim=self.point_cloud_shape[-1],
+                state_dim=self.state_shape[0],
+                crop_num_points=crop_num_points,
+                attention_hidden_dim=attention_hidden_dim,
+                attention_temperature=attention_temperature,
+                use_state_for_attention=use_state_for_attention,
+            )
+            cprint(
+                f"[DP3Encoder] attention guidance enabled with {crop_num_points} cropped points",
+                "green",
+            )
+
         cprint(f"[DP3Encoder] output dim: {self.n_output_channels}", "red")
 
     def forward(self, observations: Dict) -> torch.Tensor:
         points = observations[self.point_cloud_key]
-        point_weight = observations.get("point_weight")
         assert len(points.shape) == 3, cprint(f"point cloud shape: {points.shape}, length should be 3", "red")
         if self.use_imagined_robot:
             img_points = observations[self.imagination_key][..., :points.shape[-1]]  # align the last dim
             points = torch.concat([points, img_points], dim=1)
-            if point_weight is not None:
-                ones = torch.ones(point_weight.shape[0], img_points.shape[1], device=point_weight.device, dtype=point_weight.dtype)
-                point_weight = torch.cat([point_weight, ones], dim=1)
+
+        state = observations[self.state_key]
+        if self.crop_layer is not None:
+            points, _ = self.crop_layer(points, state)
 
         # points = torch.transpose(points, 1, 2)   # B * 3 * N
         # points: B * 3 * (N + sum(Ni))
-        pn_feat = self.extractor(points, point_weight=point_weight)  # B * out_channel
+        pn_feat = self.extractor(points)  # B * out_channel
 
-        state = observations[self.state_key]
         state_feat = self.state_mlp(state)  # B * 64
         final_feat = torch.cat([pn_feat, state_feat], dim=-1)
         return final_feat

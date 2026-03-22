@@ -45,12 +45,6 @@ class DP3(BasePolicy):
         use_pc_color=False,
         pointnet_type="pointnet",
         pointcloud_encoder_cfg=None,
-        use_planner_condition=False,
-        planner_embed_dim=16,
-        planner_vocab_sizes=None,
-        planner_xyz_hidden_dim=32,
-        planner_use_soft_point_weighting=False,
-        planner_point_weight_sigma=0.05,
         # parameters passed to step
         **kwargs,
     ):
@@ -84,36 +78,12 @@ class DP3(BasePolicy):
         obs_feature_dim = obs_encoder.output_shape()
         input_dim = action_dim + obs_feature_dim
         global_cond_dim = None
-        self.use_planner_condition = use_planner_condition
-        self.planner_embed_dim = planner_embed_dim
-        self.planner_xyz_hidden_dim = planner_xyz_hidden_dim
-        self.planner_use_soft_point_weighting = planner_use_soft_point_weighting
-        self.planner_point_weight_sigma = float(planner_point_weight_sigma)
-        planner_vocab_sizes = planner_vocab_sizes or {}
-        self.stage_vocab_size = int(planner_vocab_sizes.get("stage", 1))
-        self.phase_vocab_size = int(planner_vocab_sizes.get("phase", 1))
-        self.arm_vocab_size = int(planner_vocab_sizes.get("arm", 1))
-        self.source_vocab_size = int(planner_vocab_sizes.get("source", 1))
-        self.support_kind_vocab_size = int(planner_vocab_sizes.get("support_kind", 1))
-        self.planner_cond_dim = planner_embed_dim * 5 + planner_xyz_hidden_dim if use_planner_condition else 0
         if obs_as_global_cond:
             input_dim = action_dim
             if "cross_attention" in self.condition_type:
-                global_cond_dim = obs_feature_dim + self.planner_cond_dim
+                global_cond_dim = obs_feature_dim
             else:
-                global_cond_dim = obs_feature_dim * n_obs_steps + self.planner_cond_dim
-
-        if self.use_planner_condition:
-            self.stage_emb = nn.Embedding(num_embeddings=self.stage_vocab_size, embedding_dim=planner_embed_dim)
-            self.phase_emb = nn.Embedding(num_embeddings=self.phase_vocab_size, embedding_dim=planner_embed_dim)
-            self.arm_emb = nn.Embedding(num_embeddings=self.arm_vocab_size, embedding_dim=planner_embed_dim)
-            self.source_emb = nn.Embedding(num_embeddings=self.source_vocab_size, embedding_dim=planner_embed_dim)
-            self.support_kind_emb = nn.Embedding(num_embeddings=self.support_kind_vocab_size, embedding_dim=planner_embed_dim)
-            self.planner_xyz_mlp = nn.Sequential(
-                nn.Linear(8, planner_xyz_hidden_dim),
-                nn.ReLU(),
-                nn.Linear(planner_xyz_hidden_dim, planner_xyz_hidden_dim),
-            )
+                global_cond_dim = obs_feature_dim * n_obs_steps
 
         self.use_pc_color = use_pc_color
         self.pointnet_type = pointnet_type
@@ -167,93 +137,6 @@ class DP3(BasePolicy):
         self.num_inference_steps = num_inference_steps
 
         print_params(self)
-
-    def _planner_condition_features(self, batch, batch_size, device):
-        if not self.use_planner_condition:
-            return None
-
-        def _long_tensor(name):
-            value = batch.get(name)
-            if value is None:
-                return torch.zeros(batch_size, dtype=torch.long, device=device)
-            return value.to(device=device, dtype=torch.long).reshape(batch_size)
-
-        def _float_tensor(name, dims):
-            value = batch.get(name)
-            if value is None:
-                return torch.zeros((batch_size, dims), dtype=torch.float32, device=device)
-            return value.to(device=device, dtype=torch.float32).reshape(batch_size, dims)
-
-        stage_id = _long_tensor("planner_stage_id")
-        phase_id = _long_tensor("planner_phase_id")
-        arm_id = _long_tensor("planner_arm_id")
-        source_id = _long_tensor("planner_source_id")
-        support_kind_id = _long_tensor("planner_support_kind_id")
-
-        source_anchor = _float_tensor("planner_source_anchor", 3)
-        support_anchor = _float_tensor("planner_support_anchor", 3)
-        source_valid = _float_tensor("planner_source_valid", 1)
-        support_valid = _float_tensor("planner_support_valid", 1)
-
-        stage_feat = self.stage_emb(stage_id)
-        phase_feat = self.phase_emb(phase_id)
-        arm_feat = self.arm_emb(arm_id)
-        source_feat = self.source_emb(source_id)
-        support_feat = self.support_kind_emb(support_kind_id)
-        xyz_feat = self.planner_xyz_mlp(torch.cat([source_anchor, support_anchor, source_valid, support_valid], dim=-1))
-        return torch.cat([stage_feat, phase_feat, arm_feat, source_feat, support_feat, xyz_feat], dim=-1)
-
-    def _planner_point_weights(self, raw_point_cloud, batch, batch_size, device):
-        if (not self.use_planner_condition) or (not self.planner_use_soft_point_weighting):
-            return None
-        if raw_point_cloud is None:
-            return None
-
-        if raw_point_cloud.dim() == 4:
-            B, T, N, _ = raw_point_cloud.shape
-            points = raw_point_cloud[..., :3].reshape(B * T, N, 3).to(device=device, dtype=torch.float32)
-            repeat_factor = T
-        elif raw_point_cloud.dim() == 3:
-            B, N, _ = raw_point_cloud.shape
-            points = raw_point_cloud[..., :3].to(device=device, dtype=torch.float32)
-            repeat_factor = 1
-        else:
-            return None
-
-        def _repeat(value, dims):
-            if value is None:
-                base = torch.zeros((batch_size, dims), dtype=torch.float32, device=device)
-            else:
-                base = value.to(device=device, dtype=torch.float32).reshape(batch_size, dims)
-            if repeat_factor > 1:
-                base = base[:, None, :].repeat(1, repeat_factor, 1).reshape(batch_size * repeat_factor, dims)
-            return base
-
-        def _repeat_scalar(name, default):
-            value = batch.get(name)
-            if value is None:
-                base = torch.full((batch_size, 1), float(default), dtype=torch.float32, device=device)
-            else:
-                base = value.to(device=device, dtype=torch.float32).reshape(batch_size, 1)
-            if repeat_factor > 1:
-                base = base[:, None, :].repeat(1, repeat_factor, 1).reshape(batch_size * repeat_factor, 1)
-            return base
-
-        source_anchor = _repeat(batch.get("planner_source_anchor"), 3)
-        support_anchor = _repeat(batch.get("planner_support_anchor"), 3)
-        source_valid = _repeat(batch.get("planner_source_valid"), 1)
-        support_valid = _repeat(batch.get("planner_support_valid"), 1)
-        source_scale = _repeat_scalar("planner_weight_source", 1.0)
-        support_scale = _repeat_scalar("planner_weight_support", 0.35)
-        base_weight = _repeat_scalar("planner_weight_base", 0.25)
-
-        sigma2 = max(self.planner_point_weight_sigma, 1e-6) ** 2
-        src_dist2 = ((points - source_anchor[:, None, :]) ** 2).sum(dim=-1)
-        sup_dist2 = ((points - support_anchor[:, None, :]) ** 2).sum(dim=-1)
-        src_gate = torch.exp(-0.5 * src_dist2 / sigma2) * source_valid
-        sup_gate = torch.exp(-0.5 * sup_dist2 / sigma2) * support_valid
-        weights = base_weight + source_scale * src_gate + support_scale * sup_gate
-        return weights.clamp(min=0.0, max=2.0)
 
     # ========= inference  ============
     def conditional_sample(
@@ -309,28 +192,7 @@ class DP3(BasePolicy):
         result: must include "action" key
         """
         # normalize input
-        planner_keys = {
-            "planner_stage_id",
-            "planner_phase_id",
-            "planner_arm_id",
-            "planner_source_id",
-            "planner_support_kind_id",
-            "planner_source_anchor",
-            "planner_support_anchor",
-            "planner_target_anchor",
-            "planner_source_valid",
-            "planner_support_valid",
-            "planner_target_valid",
-            "planner_weight_source",
-            "planner_weight_support",
-            "planner_weight_base",
-        }
-        obs_only_dict = {
-            key: value
-            for key, value in obs_dict.items()
-            if key not in planner_keys
-        }
-        nobs = self.normalizer.normalize(obs_only_dict)
+        nobs = self.normalizer.normalize(obs_dict)
         # this_n_point_cloud = nobs['imagin_robot'][..., :3] # only use coordinate
         if not self.use_pc_color:
             nobs["point_cloud"] = nobs["point_cloud"][..., :3]
@@ -352,11 +214,7 @@ class DP3(BasePolicy):
         global_cond = None
         if self.obs_as_global_cond:
             # condition through global feature
-            raw_point_cloud = obs_only_dict["point_cloud"][:, :To, ...]
-            point_weight = self._planner_point_weights(raw_point_cloud, obs_dict, batch_size=B, device=device)
             this_nobs = dict_apply(nobs, lambda x: x[:, :To, ...].reshape(-1, *x.shape[2:]))
-            if point_weight is not None:
-                this_nobs["point_weight"] = point_weight.reshape(-1, point_weight.shape[-1])
             nobs_features = self.obs_encoder(this_nobs)
             if "cross_attention" in self.condition_type:
                 # treat as a sequence
@@ -364,26 +222,19 @@ class DP3(BasePolicy):
             else:
                 # reshape back to B, Do
                 global_cond = nobs_features.reshape(B, -1)
-            planner_cond = self._planner_condition_features(obs_dict, batch_size=B, device=device)
-            if planner_cond is not None:
-                global_cond = torch.cat([global_cond, planner_cond], dim=-1)
             # empty data for action
             cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         else:
             # condition through impainting
-            raw_point_cloud = obs_only_dict["point_cloud"]
-            point_weight = self._planner_point_weights(raw_point_cloud, obs_dict, batch_size=B, device=device)
-            this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
-            if point_weight is not None:
-                this_nobs["point_weight"] = point_weight.reshape(-1, point_weight.shape[-1])
+            this_nobs = dict_apply(nobs, lambda x: x[:, :To, ...].reshape(-1, *x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, T, Do
-            nobs_features = nobs_features.reshape(B, T, -1)
+            nobs_features = nobs_features.reshape(B, To, -1)
             cond_data = torch.zeros(size=(B, T, Da + Do), device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
-            cond_data[:, :T, Da:] = nobs_features
-            cond_mask[:, :T, Da:] = True
+            cond_data[:, :To, Da:] = nobs_features
+            cond_mask[:, :To, Da:] = True
 
         # run sampling
         nsample = self.conditional_sample(
@@ -435,11 +286,7 @@ class DP3(BasePolicy):
 
         if self.obs_as_global_cond:
             # reshape B, T, ... to B*T
-            raw_point_cloud = batch["obs"]["point_cloud"][:, :self.n_obs_steps, ...]
-            point_weight = self._planner_point_weights(raw_point_cloud, batch, batch_size=batch_size, device=trajectory.device)
             this_nobs = dict_apply(nobs, lambda x: x[:, :self.n_obs_steps, ...].reshape(-1, *x.shape[2:]))
-            if point_weight is not None:
-                this_nobs["point_weight"] = point_weight.reshape(-1, point_weight.shape[-1])
             nobs_features = self.obs_encoder(this_nobs)
 
             if "cross_attention" in self.condition_type:
@@ -448,19 +295,12 @@ class DP3(BasePolicy):
             else:
                 # reshape back to B, Do
                 global_cond = nobs_features.reshape(batch_size, -1)
-            planner_cond = self._planner_condition_features(batch, batch_size=batch_size, device=trajectory.device)
-            if planner_cond is not None:
-                global_cond = torch.cat([global_cond, planner_cond], dim=-1)
             # this_n_point_cloud = this_nobs['imagin_robot'].reshape(batch_size,-1, *this_nobs['imagin_robot'].shape[1:])
             this_n_point_cloud = this_nobs["point_cloud"].reshape(batch_size, -1, *this_nobs["point_cloud"].shape[1:])
             this_n_point_cloud = this_n_point_cloud[..., :3]
         else:
-            raw_point_cloud = batch["obs"]["point_cloud"]
-            point_weight = self._planner_point_weights(raw_point_cloud, batch, batch_size=batch_size, device=trajectory.device)
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
-            if point_weight is not None:
-                this_nobs["point_weight"] = point_weight.reshape(-1, point_weight.shape[-1])
             nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, T, Do
             nobs_features = nobs_features.reshape(batch_size, horizon, -1)

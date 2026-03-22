@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 import copy
 
 from typing import Optional, Dict, Tuple, Union, List, Type
@@ -94,12 +95,8 @@ class PointNetEncoderXYZRGB(nn.Module):
         else:
             raise NotImplementedError(f"final_norm: {final_norm}")
 
-    def forward(self, x, point_weight=None):
+    def forward(self, x):
         x = self.mlp(x)
-        if point_weight is not None:
-            if point_weight.dim() == 2:
-                point_weight = point_weight.unsqueeze(-1)
-            x = x * point_weight
         x = torch.max(x, 1)[0]
         x = self.final_projection(x)
         return x
@@ -166,12 +163,8 @@ class PointNetEncoderXYZ(nn.Module):
             self.mlp[6].register_forward_hook(self.save_feature)
             self.mlp[6].register_backward_hook(self.save_gradient)
 
-    def forward(self, x, point_weight=None):
+    def forward(self, x):
         x = self.mlp(x)
-        if point_weight is not None:
-            if point_weight.dim() == 2:
-                point_weight = point_weight.unsqueeze(-1)
-            x = x * point_weight
         x = torch.max(x, 1)[0]
         x = self.final_projection(x)
         return x
@@ -253,25 +246,60 @@ class DP3Encoder(nn.Module):
         self.n_output_channels += output_dim
         self.state_mlp = nn.Sequential(*create_mlp(self.state_shape[0], output_dim, net_arch, state_mlp_activation_fn))
 
+        # === Target-Conditioned Attention & Saliency ===
+        pt_feat_dim = 512 if (self.pointnet_type == "pointnet" and self.use_pc_color) else 256
+        
+        # Saliency MLP: input = point_features + state_feat -> scalar score
+        self.saliency_mlp = nn.Sequential(
+            nn.Linear(pt_feat_dim + output_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+        
+        # Target-conditioned cross attention
+        self.attn_q = nn.Linear(output_dim, pt_feat_dim)
+        self.cross_attn = nn.MultiheadAttention(embed_dim=pt_feat_dim, num_heads=4, batch_first=True)
+        # ===============================================
+
         cprint(f"[DP3Encoder] output dim: {self.n_output_channels}", "red")
 
     def forward(self, observations: Dict) -> torch.Tensor:
         points = observations[self.point_cloud_key]
-        point_weight = observations.get("point_weight")
         assert len(points.shape) == 3, cprint(f"point cloud shape: {points.shape}, length should be 3", "red")
         if self.use_imagined_robot:
             img_points = observations[self.imagination_key][..., :points.shape[-1]]  # align the last dim
             points = torch.concat([points, img_points], dim=1)
-            if point_weight is not None:
-                ones = torch.ones(point_weight.shape[0], img_points.shape[1], device=point_weight.device, dtype=point_weight.dtype)
-                point_weight = torch.cat([point_weight, ones], dim=1)
-
-        # points = torch.transpose(points, 1, 2)   # B * 3 * N
-        # points: B * 3 * (N + sum(Ni))
-        pn_feat = self.extractor(points, point_weight=point_weight)  # B * out_channel
 
         state = observations[self.state_key]
         state_feat = self.state_mlp(state)  # B * 64
+        
+        # --- Target-Conditioned Point-wise Extractor ---
+        # 1. Base point features
+        pt_features = self.extractor.mlp(points) # B * N * pt_feat_dim
+        
+        # 2. Point-wise Saliency Weighting
+        B, N, C = pt_features.shape
+        expanded_state = state_feat.unsqueeze(1).expand(-1, N, -1)
+        cat_feat = torch.cat([pt_features, expanded_state], dim=-1) # B * N * (pt_feat_dim + output_dim)
+        
+        saliency_scores = self.saliency_mlp(cat_feat) # B * N * 1
+        # Scale by N to keep expected magnitude similar
+        point_weights = torch.softmax(saliency_scores, dim=1) * N
+        weighted_pt_features = pt_features * point_weights
+        
+        # 3. Target-conditioned Cross Attention
+        q = self.attn_q(state_feat).unsqueeze(1) # B * 1 * pt_feat_dim
+        attn_out, _ = self.cross_attn(query=q, key=weighted_pt_features, value=weighted_pt_features) # B * 1 * pt_feat_dim
+        attn_out = attn_out.squeeze(1) # B * pt_feat_dim
+        
+        # 4. Global Max Pooling + Attention Output
+        max_pool_out = torch.max(weighted_pt_features, dim=1)[0]
+        combined_feat = max_pool_out + attn_out
+        
+        # 5. Final Projection
+        pn_feat = self.extractor.final_projection(combined_feat)
+        # -----------------------------------------------
+
         final_feat = torch.cat([pn_feat, state_feat], dim=-1)
         return final_feat
 

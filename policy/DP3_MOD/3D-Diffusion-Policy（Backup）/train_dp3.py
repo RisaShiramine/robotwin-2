@@ -36,7 +36,6 @@ import sys
 from hydra.core.hydra_config import HydraConfig
 from diffusion_policy_3d.policy.dp3 import DP3
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
-from diffusion_policy_3d.dataset.robot_dataset import inspect_planner_sidecar
 from diffusion_policy_3d.env_runner.base_runner import BaseRunner
 from diffusion_policy_3d.env_runner.robot_runner import RobotRunner
 from diffusion_policy_3d.common.checkpoint_util import TopKCheckpointManager
@@ -64,8 +63,6 @@ class TrainDP3Workspace:
         np.random.seed(seed)
         random.seed(seed)
 
-        self._configure_planner_sidecar()
-
         # configure model
         self.model: DP3 = hydra.utils.instantiate(cfg.policy)
 
@@ -82,19 +79,6 @@ class TrainDP3Workspace:
         # configure training state
         self.global_step = 0
         self.epoch = 0
-
-
-    def _configure_planner_sidecar(self):
-        dataset_cfg = self.cfg.task.dataset
-        planner_labels_jsonl = dataset_cfg.get("planner_labels_jsonl", None)
-        if not planner_labels_jsonl:
-            self.cfg.policy.use_planner_condition = False
-            return
-
-        has_planner_sidecar, vocab_sizes = inspect_planner_sidecar(planner_labels_jsonl)
-        self.cfg.policy.use_planner_condition = bool(has_planner_sidecar)
-        if has_planner_sidecar and vocab_sizes:
-            self.cfg.policy.planner_vocab_sizes = vocab_sizes
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -328,7 +312,7 @@ class TrainDP3Workspace:
         n_obs_steps = cfg['n_obs_steps']
         n_action_steps = cfg['n_action_steps']
 
-        env_runner = RobotRunner(n_obs_steps=n_obs_steps, n_action_steps=n_action_steps, task_name=usr_args['task_name'])
+        env_runner = RobotRunner(n_obs_steps=n_obs_steps, n_action_steps=n_action_steps)
 
         if not cfg.policy.use_pc_color:
             ckpt_file = pathlib.Path(

@@ -105,7 +105,7 @@ def normalize_object_key(text):
 
 def is_stack_blocks_task(task_env):
     task_name = task_env.__class__.__name__.lower()
-    return "stack" in task_name and "block" in task_name
+    return "stackaaaaa" in task_name and "blockaaaaa" in task_name
 
 
 def get_stack_center_xy(task_env):

@@ -54,17 +54,23 @@ policy:
   obs_as_global_cond: true
   shape_meta: ${shape_meta}
 
-  use_pc_color: true
+  use_pc_color: false
   pointnet_type: "pointnet"
-  use_attention_guidance: true
-  crop_num_points: 256
-  attention_hidden_dim: 128
-  attention_temperature: 0.35
-  use_state_for_attention: true
+  use_planner_condition: false
+  planner_embed_dim: 16
+  planner_xyz_hidden_dim: 32
+  planner_use_soft_point_weighting: false
+  planner_point_weight_sigma: 0.05
+  planner_vocab_sizes:
+    stage: 1
+    phase: 1
+    arm: 1
+    source: 1
+    support_kind: 1
 
 
   pointcloud_encoder_cfg:
-    in_channels: 6
+    in_channels: 3
     out_channels: ${policy.encoder_output_dim}
     use_layernorm: true
     final_norm: layernorm # layernorm, none
@@ -80,29 +86,29 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 2048
-  num_workers: 32
+  batch_size: 384
+  num_workers: 16
   shuffle: True
   pin_memory: True
   persistent_workers: True
 
 val_dataloader:
-  batch_size: 2048
-  num_workers: 32
+  batch_size: 384
+  num_workers: 16
   shuffle: False
   pin_memory: True
   persistent_workers: True
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 4.0e-4
+  lr: 1.0e-4
   betas: [0.95, 0.999]
   eps: 1.0e-8
   weight_decay: 1.0e-6
 
 training:
   device: "cuda:0"
-  seed: 42
+  seed: 0
   debug: False
   resume: True
   lr_scheduler: cosine
@@ -111,7 +117,7 @@ training:
   gradient_accumulate_every: 1
   use_ema: True
   rollout_every: 200
-  checkpoint_every: 300
+  checkpoint_every: 200
   val_every: 50
   sample_every: 20
   max_train_steps: null
@@ -154,4 +160,4 @@ multi_run:
 checkpoint_num: 3000
 expert_data_num: 100
 raw_task_name: none
-setting: none
+setting: demo_clean

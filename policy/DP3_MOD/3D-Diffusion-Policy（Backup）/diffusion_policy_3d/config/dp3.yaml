@@ -56,6 +56,11 @@ policy:
 
   use_pc_color: false
   pointnet_type: "pointnet"
+  use_attention_guidance: false
+  crop_num_points: 256
+  attention_hidden_dim: 128
+  attention_temperature: 0.35
+  use_state_for_attention: true
 
 
   pointcloud_encoder_cfg:

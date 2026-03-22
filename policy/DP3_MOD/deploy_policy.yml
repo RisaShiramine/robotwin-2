@@ -4,11 +4,15 @@ task_name: null
 task_config: null
 ckpt_setting: null
 seed: null
-instruction_type: unseen
+instruction_type: seen
 
 # Add Parameters You Need
 config_name: robot_dp3
 checkpoint_num: 3000
 dp3_task: demo_task
 expert_data_num: null
-use_rgb: true
+use_rgb: false
+use_planner_condition: false
+planner_labels_jsonl: null
+planner_eval_sequence_path: null
+planner_debug: false
